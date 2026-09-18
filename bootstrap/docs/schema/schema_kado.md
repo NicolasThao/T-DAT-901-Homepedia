@@ -16,21 +16,21 @@ Exploration : `bootstrap/scripts/explore_kado.py` (profilage exécuté via PySpa
 ## Schéma retenu
 
 ```
-                    ┌──────────────┐
-                    │  Dim_Client  │
-                    │──────────────│
-                    │ cli_id (PK)  │
-                    └──────┬───────┘
-                           │
-┌──────────────┐    ┌──────▼───────────┐    ┌──────────────┐
-│  Dim_Temps    │    │   Fait_Ventes     │    │  Dim_Produit │
-│───────────────│    │───────────────────│    │──────────────│
-│ mois_vente(PK)├────┤ ticket_id (DD)    ├────┤ produit_id(PK│
-└───────────────┘    │ mois_vente (FK)   │    │ libelle      │
-                      │ cli_id (FK)       │    │ famille      │
-                      │ produit_id (FK)   │    │ univers      │
-                      │ prix_net (mesure) │    │ maille       │
-                      └───────────────────┘    └──────────────┘
+                     ┌──────────────┐
+                     │  Dim_Client  │
+                     │──────────────│
+                     │ cli_id (PK)  │
+                     └──────┬───────┘
+                            │
+┌───────────────┐    ┌──────▼────────────┐    ┌───────────────┐
+│  Dim_Temps    │    │   Fait_Ventes     │    │  Dim_Produit  │
+│───────────────│    │───────────────────│    │───────────────│
+│ mois_vente(PK)├────┤ ticket_id (DD)    ├────┤ produit_id(PK)│
+└───────────────┘    │ mois_vente (FK)   │    │ libelle       │
+                     │ cli_id (FK)       │    │ famille       │
+                     │ produit_id (FK)   │    │ univers       │
+                     │ prix_net (mesure) │    │ maille        │
+                     └───────────────────┘    └───────────────┘
 ```
 
 (DD = dimension dégénérée : conservée directement dans la table de faits, sans table dédiée, car sans attribut propre.)
