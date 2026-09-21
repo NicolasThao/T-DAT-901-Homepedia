@@ -11,6 +11,10 @@ bootstrap/data/*.csv.zip
 *.csv
 *.csv.zip
 *.parquet
+*.jsonl
+
+# Données scrapées (regenerables, pas versionnees)
+scraping/orpi/data/
 
 # Sorties Spark
 */_SUCCESS
