@@ -25,3 +25,6 @@ scraping/orpi/data/
 Thumbs.db
 .vscode/
 .idea/
+
+# Identifiants des bases (seul db/.env.example est versionné)
+.env
