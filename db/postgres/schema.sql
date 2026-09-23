@@ -6,6 +6,7 @@
 -- Les textes libres (descriptions d'annonces, avis) vivent dans MongoDB, pas ici.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS unaccent;   -- comparaison des noms de communes sans accents
 
 -- ---------------------------------------------------------------------------
 -- Référentiel géographique (source : geo.api.gouv.fr)
@@ -46,21 +47,24 @@ CREATE INDEX IF NOT EXISTS idx_commune_contour      ON commune USING gist (conto
 
 -- ---------------------------------------------------------------------------
 -- Transactions DVF (une ligne par mutation, après dédoublonnage des lots)
+-- Une mutation = un acte = une valeur foncière. Le CSV répète cette valeur sur chaque
+-- ligne (lot, parcelle) de l'acte ; clé retenue : date + commune + nature + valeur.
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS mutation_dvf (
     id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    cle_mutation        text NOT NULL UNIQUE,              -- clé naturelle calculée au chargement
+    cle_mutation        text NOT NULL UNIQUE,              -- date|code_insee_source|nature|valeur
     date_mutation       date NOT NULL,
     nature_mutation     text NOT NULL,
     valeur_fonciere     numeric(15, 2),
     code_insee_source   char(5) NOT NULL,                  -- code tel que lu dans DVF
     code_insee          char(5) REFERENCES commune,        -- NULL si commune fusionnée depuis 2022
-    type_local          text,                              -- type du local principal
-    surface_bati_m2     numeric(10, 2),
-    nb_pieces           smallint,
-    surface_terrain_m2  numeric(12, 2),
-    nb_lignes_source    smallint NOT NULL,                 -- lignes CSV fusionnées dans la mutation
+    type_local          text,                              -- Maison / Appartement / Mixte / autre type / NULL (terrain seul)
+    nb_logements        integer NOT NULL,                  -- lots Maison + Appartement de l'acte
+    surface_bati_m2     numeric(12, 2),                    -- somme des surfaces des logements
+    nb_pieces           integer,
+    surface_terrain_m2  numeric(14, 2),                    -- somme sur parcelles distinctes
+    nb_lignes_source    integer NOT NULL,                  -- lignes CSV fusionnées dans la mutation
     prix_m2             numeric(12, 2) GENERATED ALWAYS AS (
                             CASE WHEN surface_bati_m2 > 0 THEN valeur_fonciere / surface_bati_m2 END
                         ) STORED
@@ -68,6 +72,9 @@ CREATE TABLE IF NOT EXISTS mutation_dvf (
 
 CREATE INDEX IF NOT EXISTS idx_mutation_commune_date ON mutation_dvf (code_insee, date_mutation);
 CREATE INDEX IF NOT EXISTS idx_mutation_type_local   ON mutation_dvf (type_local);
+-- Index partiel : les analyses de prix/m² ne portent que sur les ventes d'un seul logement
+CREATE INDEX IF NOT EXISTS idx_mutation_logement_unique ON mutation_dvf (code_insee, prix_m2)
+    WHERE nb_logements = 1;
 
 -- ---------------------------------------------------------------------------
 -- Annonces Orpi (champs structurés ; le JSON brut et la description sont dans MongoDB)
@@ -85,7 +92,7 @@ CREATE TABLE IF NOT EXISTS agence (
 
 CREATE TABLE IF NOT EXISTS annonce (
     id_orpi               bigint PRIMARY KEY,               -- clé partagée avec MongoDB
-    reference             uuid NOT NULL UNIQUE,
+    reference             text NOT NULL UNIQUE,         -- UUID ou référence d'agence, format libre
     url                   text NOT NULL,
     type_bien             text NOT NULL,
     sous_type             text,

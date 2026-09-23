@@ -71,9 +71,61 @@ def check_referentiel(cur):
         controle(f"repère {nom} -> {attendu}", trouve == attendu, f"trouvé {trouve}")
 
 
+def check_dvf(cur):
+    # Attendus recalculés depuis le CSV source, indépendamment du loader
+    from load_postgres import lire_dvf
+    staging = lire_dvf()
+    nb_lignes, nb_mutations = len(staging), staging["cle"].nunique()
+    codes_connus = {r[0] for r in cur.execute("SELECT code_insee FROM commune")}
+    codes_inconnus = set(staging["code_insee"].unique()) - codes_connus
+
+    n = cur.execute("SELECT count(*) FROM mutation_dvf").fetchone()[0]
+    controle(f"mutation_dvf : {n} mutations", n == nb_mutations, f"attendu {nb_mutations}")
+
+    lignes = cur.execute("SELECT sum(nb_lignes_source) FROM mutation_dvf").fetchone()[0]
+    controle("aucune ligne DVF perdue à l'agrégation", lignes == nb_lignes, f"{lignes} / {nb_lignes}")
+
+    sans_commune = cur.execute(
+        "SELECT count(DISTINCT code_insee_source) FROM mutation_dvf WHERE code_insee IS NULL").fetchone()[0]
+    controle("code_insee NULL uniquement pour les codes absents du référentiel",
+             sans_commune == len(codes_inconnus), f"{sans_commune} codes, attendu {len(codes_inconnus)}")
+
+    # Ordre de grandeur connu : Paris 6e / 7e ~15 000 €/m² (Follow-up 1, job 3)
+    mediane = cur.execute("""
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2) FROM mutation_dvf
+        WHERE code_insee = '75106' AND nb_logements = 1 AND type_local = 'Appartement'
+          AND nature_mutation = 'Vente'""").fetchone()[0]
+    controle("médiane prix/m² Paris 6e plausible (10 000 - 20 000 €)",
+             mediane is not None and 10_000 <= mediane <= 20_000, f"{mediane:.0f} €/m²" if mediane else "aucune")
+
+
+def check_orpi(cur):
+    import pandas as pd
+    from load_postgres import ORPI_CSV
+    o = pd.read_csv(ORPI_CSV, dtype={"code_postal": str})
+
+    n = cur.execute("SELECT count(*) FROM annonce").fetchone()[0]
+    controle(f"annonce : {n} lignes", n == len(o), f"attendu {len(o)}")
+
+    attendu = len(o[["agence_nom", "agence_adresse"]].drop_duplicates())
+    n = cur.execute("SELECT count(*) FROM agence").fetchone()[0]
+    controle(f"agence : {n} lignes", n == attendu, f"attendu {attendu}")
+
+    hors_france = int((~o["departement_valide_france"]).sum())
+    sans_commune = cur.execute("SELECT count(*) FROM annonce WHERE code_insee IS NULL").fetchone()[0]
+    controle("seules les annonces hors France sont sans commune", sans_commune == hors_france,
+             f"{sans_commune} sans commune, {hors_france} hors France")
+
+    plm_non_detaille = cur.execute(
+        "SELECT count(*) FROM annonce WHERE code_insee IN ('75056', '69123', '13055')").fetchone()[0]
+    controle("Paris/Lyon/Marseille rattachées à l'arrondissement", plm_non_detaille == 0)
+
+
 def main():
     with postgres() as conn, conn.cursor() as cur:
         check_referentiel(cur)
+        check_dvf(cur)
+        check_orpi(cur)
     nb_fail = resultats.count(False)
     print(f"\n{'PASS' if nb_fail == 0 else 'FAIL'} — {len(resultats) - nb_fail}/{len(resultats)} contrôles OK")
     sys.exit(1 if nb_fail else 0)
