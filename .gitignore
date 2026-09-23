@@ -28,3 +28,6 @@ Thumbs.db
 
 # Identifiants des bases (seul db/.env.example est versionné)
 .env
+
+# Cache des téléchargements (regénérable)
+db/data/
