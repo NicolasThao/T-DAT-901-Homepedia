@@ -73,7 +73,42 @@ Aucun attribut démographique disponible dans KaDo — dimension minimale pour l
 |---|---|
 | `mois_vente` (PK) | int (1-12) |
 
+## Implémentation PostgreSQL
+
+Schéma matérialisé dans le schéma PostgreSQL `kado` (même conteneur que Homepedia, cf. `db/docker-compose.yml`) :
+
+| Fichier | Rôle |
+|---|---|
+| `db/postgres/kado.sql` | DDL : `kado.dim_client`, `kado.dim_produit`, `kado.dim_temps` (+ `nom_mois`, `trimestre`), `kado.fait_vente`, clés étrangères et index |
+| `db/load_kado.py` | Chargement : `COPY` du CSV dans une table temporaire, puis remplissage des dimensions (`SELECT DISTINCT`) et du fait (jointure sur `libelle` pour récupérer `produit_id`). Tables vidées puis rechargées dans **une seule transaction** → rejouable |
+| `db/check.py` (`check_kado`) | Contrôles PASS/FAIL recalculés depuis le CSV : nombre de lignes par table, chiffre d'affaires total au centime près, 0 ticket multi-client |
+
+```
+python db/load_kado.py     # ~4 min
+python db/check.py
+```
+
+Choix d'implémentation :
+- `fait_vente.id` : clé technique, car la source n'a pas d'identifiant de ligne (deux lignes identiques existent : deux fois le même article dans un ticket).
+- `prix_net numeric(12, 2)` : montant exact (pas de flottant pour de l'argent) ; la source a au plus 2 décimales.
+- `dim_produit.libelle UNIQUE` : si un libellé apparaissait avec deux catégories différentes, le chargement échouerait au lieu d'en choisir une au hasard.
+- PostgreSQL plutôt que MySQL (suggéré par le bootstrap) : même moteur que le reste du projet, les notions (clés, index, jointures) sont identiques.
+
 ## Requêtes types permises par ce schéma
+
+```sql
+-- Chiffre d'affaires par famille et par trimestre
+SELECT p.famille, t.trimestre, sum(f.prix_net) AS ca
+FROM kado.fait_vente f
+JOIN kado.dim_produit p USING (produit_id)
+JOIN kado.dim_temps  t USING (mois_vente)
+GROUP BY p.famille, t.trimestre
+ORDER BY p.famille, t.trimestre;
+
+-- Panier moyen
+SELECT avg(total) FROM (SELECT ticket_id, sum(prix_net) AS total FROM kado.fait_vente GROUP BY ticket_id) AS paniers;
+```
+
 
 - Chiffre d'affaires par mois, par famille, par client
 - Top produits par univers ou par maille (indépendamment)

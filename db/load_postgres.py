@@ -17,7 +17,8 @@ from config import DB_DIR, postgres
 
 ROOT = DB_DIR.parent
 DVF_ZIP = ROOT / "bootstrap" / "data" / "france_total_real_estate_sales_2022.csv.zip"
-ORPI_CSV = ROOT / "scraping" / "orpi" / "data" / "listings_clean.csv"
+ORPI_CSV = ROOT / "scraping" / "orpi" / "data" / "orpi" / "listings_clean.csv"
+ORPI_JSONL = ORPI_CSV.with_name("listings_raw.jsonl")
 
 # ---------------------------------------------------------------------------
 # DVF
@@ -32,6 +33,7 @@ CREATE TEMP TABLE dvf_brut (
     code_insee       char(5),
     section          text,
     no_plan          text,
+    adresse          text,
     type_local       text,
     surface_bati     numeric,
     nb_pieces        numeric,
@@ -44,15 +46,18 @@ CREATE TEMP TABLE dvf_brut (
 AGREGATION_DVF = """
 INSERT INTO mutation_dvf (cle_mutation, date_mutation, nature_mutation, valeur_fonciere,
                           code_insee_source, code_insee, type_local, nb_logements,
-                          surface_bati_m2, nb_pieces, surface_terrain_m2, nb_lignes_source)
+                          surface_bati_m2, nb_pieces, surface_terrain_m2, nb_lignes_source,
+                          nb_adresses)
 SELECT m.cle, m.date_mutation, m.nature, m.valeur, m.code_insee, c.code_insee,
-       m.type_local, m.nb_logements, m.surface_bati, m.nb_pieces, t.surface_terrain, m.nb_lignes
+       m.type_local, m.nb_logements, m.surface_bati, m.nb_pieces, t.surface_terrain, m.nb_lignes,
+       m.nb_adresses
 FROM (
     SELECT cle,
            min(date_mutation) AS date_mutation, min(nature) AS nature,
            min(valeur) AS valeur, min(code_insee) AS code_insee,
            count(*) AS nb_lignes,
            count(*) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS nb_logements,
+           count(DISTINCT adresse) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS nb_adresses,
            sum(surface_bati) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS surface_bati,
            sum(nb_pieces) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS nb_pieces,
            CASE
@@ -77,7 +82,7 @@ ON CONFLICT (cle_mutation) DO UPDATE SET
     code_insee = EXCLUDED.code_insee, type_local = EXCLUDED.type_local,
     nb_logements = EXCLUDED.nb_logements, surface_bati_m2 = EXCLUDED.surface_bati_m2,
     nb_pieces = EXCLUDED.nb_pieces, surface_terrain_m2 = EXCLUDED.surface_terrain_m2,
-    nb_lignes_source = EXCLUDED.nb_lignes_source
+    nb_lignes_source = EXCLUDED.nb_lignes_source, nb_adresses = EXCLUDED.nb_adresses
 """
 
 
@@ -102,6 +107,7 @@ def lire_dvf():
         "code_insee": code_insee,
         "section": df["Section"],
         "no_plan": df["No plan"],
+        "adresse": df["Code voie"] + "|" + df["No voie"],
         "type_local": df["Type local"],
         "surface_bati": df["Surface reelle bati"],
         "nb_pieces": df["Nombre pieces principales"],

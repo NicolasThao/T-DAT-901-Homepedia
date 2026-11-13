@@ -7,7 +7,7 @@ Usage : python db/check.py
 import json
 import sys
 
-from config import DB_DIR, postgres
+from config import DB_DIR, mongo, postgres
 
 CACHE = DB_DIR / "data" / "geo"
 resultats = []
@@ -98,6 +98,23 @@ def check_dvf(cur):
     controle("médiane prix/m² Paris 6e plausible (10 000 - 20 000 €)",
              mediane is not None and 10_000 <= mediane <= 20_000, f"{mediane:.0f} €/m²" if mediane else "aucune")
 
+    # Qualité (étape 3ter) : attendus recalculés depuis le CSV
+    logements = staging[staging["type_local"].isin(["Maison", "Appartement"])]
+    attendu = int((logements.groupby("cle")["adresse"].nunique() > 1).sum())
+    n = cur.execute("SELECT count(*) FROM mutation_dvf WHERE prix_m2_douteux").fetchone()[0]
+    controle("prix_m2_douteux = actes à logements d'adresses différentes", n == attendu,
+             f"{n}, attendu {attendu}")
+
+    natures_marche = ["Vente", "Vente en l'état futur d'achèvement"]
+    hors = staging.drop_duplicates("cle")
+    attendu = int((~hors["nature"].isin(natures_marche)).sum())
+    n = cur.execute("SELECT count(*) FROM mutation_dvf WHERE hors_marche").fetchone()[0]
+    controle("hors_marche = natures hors Vente / VEFA", n == attendu, f"{n}, attendu {attendu}")
+
+    vefa_exclue = cur.execute(
+        "SELECT count(*) FROM mutation_dvf WHERE hors_marche AND nature_mutation LIKE '%futur%'").fetchone()[0]
+    controle("aucune VEFA classée hors marché (apostrophe du libellé)", vefa_exclue == 0, f"{vefa_exclue}")
+
 
 def check_orpi(cur):
     import pandas as pd
@@ -121,11 +138,93 @@ def check_orpi(cur):
     controle("Paris/Lyon/Marseille rattachées à l'arrondissement", plm_non_detaille == 0)
 
 
+def check_mongo(cur):
+    from load_postgres import ORPI_JSONL
+    attendus = {json.loads(l)["id"] for l in open(ORPI_JSONL, encoding="utf-8") if l.strip()}
+    collection = mongo()["annonces_brutes"]
+
+    n = collection.count_documents({})
+    controle(f"annonces_brutes : {n} documents", n == len(attendus), f"attendu {len(attendus)}")
+
+    # Lien Postgres <-> Mongo : mêmes identifiants et même code INSEE des deux côtés
+    pg = dict(cur.execute("SELECT id_orpi, code_insee FROM annonce").fetchall())
+    mg = {d["annonce_id"]: d["code_insee"] for d in collection.find({}, {"annonce_id": 1, "code_insee": 1})}
+    controle("0 annonce sans lien Postgres <-> Mongo", set(pg) == set(mg), f"{len(set(pg) ^ set(mg))} écarts")
+    controle("code_insee identique dans Postgres et Mongo", pg == mg,
+             f"{sum(pg[i] != mg[i] for i in pg.keys() & mg.keys())} différents")
+
+    n = collection.count_documents({"$or": [{"agence_telephone": {"$exists": True}}, {"agence_email": {"$exists": True}}]})
+    controle("aucun téléphone ni e-mail d'agence", n == 0, f"{n} documents")
+
+    index = set(collection.index_information())
+    controle("index code_insee et texte sur description", {"code_insee_1", "texte_description"} <= index, str(sorted(index)))
+    trouves = collection.count_documents({"$text": {"$search": "balcon"}})
+    controle("recherche plein texte « balcon » renvoie des annonces", trouves > 0, f"{trouves} annonces")
+
+
+# Prix/m² médian des appartements : DVF (ventes d'un seul logement, hors marché exclu) face aux
+# annonces Orpi, par code INSEE. La clé pivot relie les deux sources et les deux bases.
+REQUETE_CROISEE = """
+WITH dvf AS (
+    SELECT code_insee, percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2) AS dvf_m2, count(*) AS nb_ventes
+    FROM mutation_dvf
+    WHERE nb_logements = 1 AND type_local = 'Appartement' AND NOT hors_marche AND code_insee IS NOT NULL
+    GROUP BY code_insee),
+orpi AS (
+    SELECT code_insee, percentile_cont(0.5) WITHIN GROUP (ORDER BY prix / surface_habitable_m2) AS orpi_m2,
+           count(*) AS nb_annonces
+    FROM annonce
+    WHERE type_bien = 'appartement' AND prix IS NOT NULL AND surface_habitable_m2 > 0 AND code_insee IS NOT NULL
+    GROUP BY code_insee)
+SELECT code_insee, nb_annonces, nb_ventes, orpi_m2, dvf_m2 FROM orpi JOIN dvf USING (code_insee)
+"""
+
+
+def check_croise(cur):
+    lignes = cur.execute(REQUETE_CROISEE).fetchall()
+    controle("requête croisée DVF x Orpi par code INSEE renvoie des communes", len(lignes) > 0, f"{len(lignes)} communes")
+    plausibles = all(200 <= orpi <= 30_000 and 200 <= dvf <= 30_000 for _, _, _, orpi, dvf in lignes)
+    controle("prix/m² médians DVF et Orpi plausibles (200 - 30 000 €, garde-fou d'unité)", plausibles)
+
+    # Mongo -> Postgres : chaque commune d'annonce stockée dans Mongo existe dans le référentiel
+    codes = [c for c in mongo()["annonces_brutes"].distinct("code_insee") if c]
+    connus = {r[0] for r in cur.execute("SELECT code_insee FROM commune WHERE code_insee = ANY(%s)", (codes,))}
+    controle("communes des annonces Mongo présentes dans le référentiel Postgres", set(codes) == connus,
+             f"{len(connus)} / {len(codes)}")
+
+
+def check_kado(cur):
+    # Attendus recalculés depuis le CSV source, indépendamment du loader
+    import pandas as pd
+    from load_kado import KADO_CSV
+    k = pd.read_csv(KADO_CSV, usecols=["PRIX_NET", "LIBELLE", "CLI_ID"])
+
+    for table, attendu in [("fait_vente", len(k)), ("dim_client", k["CLI_ID"].nunique()),
+                           ("dim_produit", k["LIBELLE"].nunique()), ("dim_temps", 12)]:
+        n = cur.execute(f"SELECT count(*) FROM kado.{table}").fetchone()[0]
+        controle(f"kado.{table} : {n} lignes", n == attendu, f"attendu {attendu}")
+
+    # Somme en centimes entiers : comparaison exacte, sans erreur d'arrondi flottant
+    centimes_csv = int((k["PRIX_NET"] * 100).round().astype("int64").sum())
+    centimes_bdd = cur.execute("SELECT (sum(prix_net) * 100)::bigint FROM kado.fait_vente").fetchone()[0]
+    controle("kado : chiffre d'affaires total identique au CSV", centimes_bdd == centimes_csv,
+             f"{centimes_bdd / 100:.2f} € / {centimes_csv / 100:.2f} €")
+
+    tickets_multi_clients = cur.execute("""
+        SELECT count(*) FROM (SELECT ticket_id FROM kado.fait_vente
+                              GROUP BY ticket_id HAVING count(DISTINCT cli_id) > 1) AS t""").fetchone()[0]
+    controle("kado : chaque ticket appartient à un seul client (dimension dégénérée)",
+             tickets_multi_clients == 0, f"{tickets_multi_clients} tickets multi-clients")
+
+
 def main():
     with postgres() as conn, conn.cursor() as cur:
         check_referentiel(cur)
         check_dvf(cur)
         check_orpi(cur)
+        check_mongo(cur)
+        check_croise(cur)
+        check_kado(cur)
     nb_fail = resultats.count(False)
     print(f"\n{'PASS' if nb_fail == 0 else 'FAIL'} — {len(resultats) - nb_fail}/{len(resultats)} contrôles OK")
     sys.exit(1 if nb_fail else 0)

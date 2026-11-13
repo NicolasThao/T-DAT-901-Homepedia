@@ -70,6 +70,18 @@ CREATE TABLE IF NOT EXISTS mutation_dvf (
                         ) STORED
 );
 
+-- Qualité (ajout étape 3ter) : les lignes douteuses sont marquées, jamais supprimées.
+-- nb_adresses : adresses distinctes (voie + numéro) parmi les logements de l'acte. La clé de
+-- mutation ne contient ni n° de disposition ni parcelle (absents du CSV) : deux ventes d'un
+-- même programme neuf (même jour, même commune, même prix) peuvent être fusionnées ; leur
+-- prix/m² = une valeur / somme des surfaces serait alors sous-estimé.
+ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS nb_adresses integer;
+ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS prix_m2_douteux boolean
+    GENERATED ALWAYS AS (nb_adresses > 1) STORED;
+-- Hors marché : échange, adjudication, expropriation, terrain à bâtir (seuls Vente et VEFA restent)
+ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS hors_marche boolean
+    GENERATED ALWAYS AS (nature_mutation NOT IN ('Vente', 'Vente en l''état futur d''achèvement')) STORED;
+
 CREATE INDEX IF NOT EXISTS idx_mutation_commune_date ON mutation_dvf (code_insee, date_mutation);
 CREATE INDEX IF NOT EXISTS idx_mutation_type_local   ON mutation_dvf (type_local);
 -- Index partiel : les analyses de prix/m² ne portent que sur les ventes d'un seul logement
