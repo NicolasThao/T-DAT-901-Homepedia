@@ -45,6 +45,16 @@ CREATE INDEX IF NOT EXISTS idx_commune_parent       ON commune (code_commune_par
 CREATE INDEX IF NOT EXISTS idx_commune_codes_postaux ON commune USING gin (codes_postaux);
 CREATE INDEX IF NOT EXISTS idx_commune_contour      ON commune USING gist (contour);
 
+-- Contours pour la carte (ajout MVP carte, calculés par db/load_contours.py) :
+-- départements et régions = union des contours des communes ; *_carte = version simplifiée
+-- envoyée au navigateur (~500 m de tolérance pour régions/départements, ~50 m pour les
+-- communes : France entière ≈ 0,6 Mo de GeoJSON, communes d'un département ≤ 0,8 Mo).
+ALTER TABLE departement ADD COLUMN IF NOT EXISTS contour       geometry(MultiPolygon, 4326);
+ALTER TABLE departement ADD COLUMN IF NOT EXISTS contour_carte geometry(MultiPolygon, 4326);
+ALTER TABLE region      ADD COLUMN IF NOT EXISTS contour       geometry(MultiPolygon, 4326);
+ALTER TABLE region      ADD COLUMN IF NOT EXISTS contour_carte geometry(MultiPolygon, 4326);
+ALTER TABLE commune     ADD COLUMN IF NOT EXISTS contour_carte geometry(MultiPolygon, 4326);
+
 -- ---------------------------------------------------------------------------
 -- Transactions DVF (une ligne par mutation, après dédoublonnage des lots)
 -- Une mutation = un acte = une valeur foncière. Le CSV répète cette valeur sur chaque

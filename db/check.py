@@ -217,9 +217,36 @@ def check_kado(cur):
              tickets_multi_clients == 0, f"{tickets_multi_clients} tickets multi-clients")
 
 
+def check_contours(cur):
+    # Contours des départements / régions (union des communes) et versions simplifiées pour la carte
+    for table, attendu in (("departement", 101), ("region", 18)):
+        ok = cur.execute(f"""SELECT count(*) FROM {table}
+                             WHERE contour IS NOT NULL AND ST_IsValid(contour)
+                               AND contour_carte IS NOT NULL AND NOT ST_IsEmpty(contour_carte)
+                               AND ST_IsValid(contour_carte)""").fetchone()[0]
+        controle(f"{table} : contours valides (complet + carte)", ok == attendu, f"{ok} / {attendu}")
+
+    ko = cur.execute("""SELECT count(*) FROM commune WHERE contour_carte IS NULL
+                        OR ST_IsEmpty(contour_carte) OR NOT ST_IsValid(contour_carte)""").fetchone()[0]
+    controle("communes : contour carte présent et valide", ko == 0, f"{ko} manquants ou invalides")
+
+    # La Tour Eiffel tombe dans Paris (75) et en Île-de-France (11), y compris sur les contours simplifiés
+    zones = cur.execute("""
+        SELECT (SELECT code_departement FROM departement WHERE ST_Contains(contour_carte, p)),
+               (SELECT code_region FROM region WHERE ST_Contains(contour_carte, p))
+        FROM ST_SetSRID(ST_Point(2.2945, 48.8584), 4326) AS p""").fetchone()
+    controle("repère Tour Eiffel -> département 75, région 11 (contours carte)",
+             zones == ("75", "11"), f"trouvé {zones}")
+
+    # Poids envoyé au navigateur : France entière par département < 1 Mo de GeoJSON
+    mo = cur.execute("SELECT sum(length(ST_AsGeoJSON(contour_carte, 5))) / 1e6 FROM departement").fetchone()[0]
+    controle("carte des départements < 1 Mo de GeoJSON", mo < 1, f"{mo:.2f} Mo")
+
+
 def main():
     with postgres() as conn, conn.cursor() as cur:
         check_referentiel(cur)
+        check_contours(cur)
         check_dvf(cur)
         check_orpi(cur)
         check_mongo(cur)
