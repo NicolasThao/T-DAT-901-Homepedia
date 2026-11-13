@@ -7,7 +7,9 @@ Analyse du marché immobilier français (Epitech). Ce dépôt contient :
 | `bootstrap/` | Exercices du bootstrap : 3 jobs PySpark sur les ventes immobilières, modélisation en étoile de KaDo |
 | `scraping/orpi/` | Collecte de 500 annonces de vente Orpi |
 | `db/` | Bases PostgreSQL/PostGIS + MongoDB (Docker), chargements et contrôles |
-| `docs/` | Fiches explicatives (PySpark, scraping) |
+| `jobs/` | Jobs Spark de l'app : prix au m² médian par commune, département, région |
+| `app/` | Application Streamlit : carte des prix (région → département → commune) |
+| `docs/` | Fiches explicatives (PySpark, scraping, technos BDD) et schéma de la base |
 
 Résultats et méthodologie du Follow-up 1 : [`bootstrap/docs/followup1.md`](bootstrap/docs/followup1.md).
 
@@ -126,16 +128,35 @@ docker compose -f db/docker-compose.yml --env-file db/.env up -d --wait
 
 .venv\Scripts\python db\load_referentiel.py   # régions, départements, communes (API geo.api.gouv.fr)
 .venv\Scripts\python db\load_postgres.py      # mutations DVF + annonces Orpi (~8 min)
+.venv\Scripts\python db\load_mongo.py         # annonces Orpi brutes dans MongoDB
 .venv\Scripts\python db\load_kado.py          # KaDo en schéma en étoile (~4 min)
+.venv\Scripts\python db\load_contours.py      # contours départements / régions pour la carte (~1 min)
 
-.venv\Scripts\python db\check.py              # contrôles PASS/FAIL, attendu : 26/26
+bootstrap\.venv\Scripts\python jobs\indicateurs_prix.py   # job Spark : indicateurs de prix (~40 s)
+
+.venv\Scripts\python db\check.py              # contrôles PASS/FAIL, attendu : 47/47
 ```
 
-PostgreSQL écoute sur le port **5433** de la machine (`POSTGRES_PORT` dans `db/.env`). Tous les chargements sont rejouables : les relancer ne crée pas de doublons.
+PostgreSQL écoute sur le port **5433** de la machine (`POSTGRES_PORT` dans `db/.env`). Si un autre conteneur l'occupe déjà (`docker ps`), l'arrêter ou changer `POSTGRES_PORT`. Tous les chargements sont rejouables : les relancer ne crée pas de doublons.
+
+Le job Spark télécharge une fois le driver JDBC PostgreSQL dans `jobs/lib/` (SHA-1 vérifié). Il ne passe pas par `spark.jars.packages`, qui exige `winutils.exe` sous Windows.
 
 ---
 
-## 4. Scraping Orpi (optionnel)
+## 4. Lancer l'application
+
+Bases démarrées et job Spark lancé (section 3), puis :
+
+```powershell
+.venv\Scripts\streamlit run app\main.py      # s'ouvre sur http://localhost:8501
+.venv\Scripts\python -m pytest app\test_app.py   # tests de l'app, attendu : 11 passed
+```
+
+Page Carte : France colorée par prix au m² médian (DVF), choix Tous / Appartement / Maison, clic sur une région puis un département pour descendre jusqu'aux communes (arrondissements à Paris, Lyon, Marseille). Zones grisées : moins de 30 ventes. Le tableau à droite reprend les chiffres de la carte et s'exporte en CSV.
+
+---
+
+## 5. Scraping Orpi (optionnel)
 
 Les 500 annonces sont déjà collectées dans `scraping/orpi/data/` (non versionné). Pour recollecter :
 
