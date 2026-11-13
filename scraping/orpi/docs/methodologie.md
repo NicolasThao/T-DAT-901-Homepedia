@@ -46,7 +46,7 @@ Résultat : **aucun blocage rencontré** (0 erreur 403/429/CAPTCHA) sur les 515 
 4. **Nettoyage** — déduplication sur l'identifiant Orpi, conversion DPE/GES (indice numérique 1-7 → lettre A-G), calcul du prix au m², détection des annonces hors périmètre France.
 5. **Vérification de cohérence** — comparaison croisée code postal / code département, recoupement avec le texte de l'annonce pour valider le mapping DPE (`DPE C` dans le texte ↔ `consumptionIndex: 3` dans le JSON, confirmé sur plusieurs exemples).
 
-Scripts : `scraping/orpi/01_explore_richness.py` (reconnaissance), `parser.py` (extraction), `collecte.py` (pipeline), `nettoyage.py` (structuration).
+Scripts : `scraping/orpi/explore.py` (reconnaissance), `parser.py` (extraction), `collecte.py` (pipeline), `nettoyage.py` (structuration).
 
 ---
 

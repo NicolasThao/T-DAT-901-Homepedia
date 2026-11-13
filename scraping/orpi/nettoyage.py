@@ -1,6 +1,4 @@
 """
-Etape 5 du plan scraping Orpi (plans/2026-09-21-t-dat-901-scraping-orpi.md).
-
 Nettoie et structure le dataset brut (data/listings_raw.jsonl, 500
 annonces) :
   - cast des types deja corrects (JSON), verifications de coherence

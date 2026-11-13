@@ -1,9 +1,7 @@
 """
-Etape 3 du plan scraping Orpi (plans/2026-09-21-t-dat-901-scraping-orpi.md).
-
-Pipeline de collecte respectueux :
-  - User-Agent honnete et identifiable (pas de spoof navigateur)
-  - Rate limit conservateur (1 req/s + jitter), pas de parallelisme
+Pipeline de collecte :
+  - User-Agent identifiable (pas de spoof navigateur)
+  - Rate limit (1 req/s + jitter), pas de parallelisme
   - Pas de retry agressif : un echec est logge, pas re-tente en boucle
   - Arret immediat si trop d'echecs consecutifs (signal probable de
     blocage) plutot que d'insister
@@ -12,9 +10,6 @@ Pipeline de collecte respectueux :
 
 Usage :
     python collecte.py --n 500 --seed 42 --out data/listings_raw.jsonl
-
-Ce script *construit et teste* le pipeline (etape 3). Le lancement
-reel sur l'echantillon cible de 500 annonces est l'etape 4.
 """
 
 import argparse

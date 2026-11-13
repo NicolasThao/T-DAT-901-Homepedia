@@ -1,6 +1,4 @@
 """
-Etape 1 du plan scraping Orpi (plans/2026-09-21-t-dat-901-scraping-orpi.md).
-
 Verifie sur un echantillon elargi et stratifie (type de bien + departement) :
   - le taux de pages mortes/redirigees dans le sitemap officiel des ventes
   - la presence et la longueur d'un texte descriptif libre (source textuelle)
@@ -49,7 +47,7 @@ def echantillonner(urls: list[str], n: int, seed: int = 42) -> list[str]:
         par_type[type_bien].append(u)
 
     print("Repartition des types dans le sitemap complet :")
-    for t, lst in sorted(par_type.items(), key=lambda kv: -len(kv[1])):
+    for t, lst in sorted(par_type.items(), key=lambda kv: -len(kv[1])):  
         print(f"  {t:15s} {len(lst)}")
 
     rng = random.Random(seed)

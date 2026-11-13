@@ -1,9 +1,8 @@
 """
-Etape 2 du plan scraping Orpi (plans/2026-09-21-t-dat-901-scraping-orpi.md).
 
 Parser des pages annonces Orpi.
 
-Decouverte cle (reconnaissance etape 2) : chaque page annonce embarque
+Decouverte cle : chaque page annonce embarque
 un bloc JSON complet dans l'attribut `data-estate="{...}"` d'un <div
 data-component="estate-poi-map">. Ce JSON (75-85 cles selon le type de
 bien) contient deja tous les champs utiles a l'etat structure : prix,
