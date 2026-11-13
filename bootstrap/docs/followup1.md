@@ -1,72 +1,135 @@
 # Follow-up 1 — T-DAT-901 Homepedia
 
-Préparé pour le point du vendredi 2026-09-25, à partir des exercices `bootstrap/exo.md` (modélisation en étoile de KaDo + pipeline PySpark map/reduceByKey/sortByKey sur les ventes immobilières).
+Exercices `bootstrap/exo.md` : modélisation en étoile de KaDo + pipeline PySpark map / reduceByKey / sortByKey sur les ventes immobilières.
+Mis à jour le 2026-09-24 : clé de dédoublonnage corrigée, jobs relancés, KaDo chargé en base. Tous les chiffres ci-dessous sont ceux des dernières exécutions.
 
 ---
 
 ## 1. Sources
 
-| Dataset | Fichier | Origine | Statut |
+| # | Dataset | Fichier | Origine |
 |---|---|---|---|
-| **KaDo** | `bootstrap/data/KaDo.csv` (766 Mo, 7 245 522 lignes) | Dataset bootstrap fourni par la pédagogie — données de caisse (tickets de vente en parfumerie/cosmétique). Origine précise non documentée dans le bootstrap. | Interne à l'exercice |
-| **Ventes immobilières France 2022** | `bootstrap/data/france_total_real_estate_sales_2022.csv.zip` (64 Mo compressé / 430 Mo décompressé, 3 803 885 lignes) | Structure de colonnes identique aux exports officiels **DVF — Demandes de Valeurs Foncières** (`Date mutation`, `Nature mutation`, `Valeur fonciere`, `Code departement`, `Type local`, ...), publiés en open data sur `data.gouv.fr` / `cadastre.data.gouv.fr`. **À reconfirmer avec le pédago** : le nom du fichier suggère un retraitement/agrégation 2022 fourni tel quel dans le bootstrap, pas un téléchargement direct effectué par nous. | Bootstrap, probable dérivé DVF |
+| 1 | **KaDo** | `bootstrap/data/KaDo.csv` (766 Mo, 7 245 522 lignes) | Bootstrap pédagogique — tickets de caisse d'une parfumerie |
+| 2 | **Ventes immobilières France 2022** | `bootstrap/data/france_total_real_estate_sales_2022.csv.zip` (430 Mo décompressé, 3 803 885 lignes) | Même structure que **DVF — Demandes de Valeurs Foncières** (DGFiP, open data `data.gouv.fr`). Fourni retraité dans le bootstrap — origine exacte à confirmer |
+| 3 | **Référentiel géographique** | API `geo.api.gouv.fr` (régions, départements, communes + contours) | Open data officiel, clé = code INSEE |
+| 4 | **Annonces Orpi** | `scraping/orpi/` — 500 annonces de vente | Scraping du site Orpi, cf. `scraping/orpi/docs/methodologie.md` |
 
-**Pour le projet Homepedia complet** (au-delà de ce follow-up) : le sujet recommande de privilégier des sources ouvertes/publiques (INSEE, data.gouv.fr) et d'atteindre une douzaine de sources minimum, dont au moins une textuelle (traitée par sentiment analysis). Non couvert par ce follow-up — à traiter dans une itération suivante.
+Couverture DVF : **pas de données pour la Moselle, le Bas-Rhin, le Haut-Rhin (57, 67, 68) ni Mayotte (976)**. L'Alsace-Moselle relève du Livre foncier et n'est pas publiée dans DVF.
 
 ---
 
 ## 2. Schéma de BDD
 
-Modélisation en étoile réalisée sur KaDo (exercice de modélisation demandé), documentée en détail dans [`bootstrap/docs/schema/schema_kado.md`](schema/schema_kado.md).
+### KaDo — étoile, chargée dans PostgreSQL (schéma `kado`)
 
-**Résumé** :
-- `Fait_Ventes` (grain = 1 ligne = 1 article vendu dans un ticket) — mesure `prix_net`, clés étrangères vers `Dim_Client`, `Dim_Produit`, `Dim_Temps`, `ticket_id` en dimension dégénérée
-- `Dim_Client` (`cli_id`) — dimension minimale, aucun attribut démographique dans la source
-- `Dim_Produit` (`produit_id`, `libelle`, `famille`, `univers`, `maille`) — attributs plats, **pas** un snowflake : `MAILLE` ne descend pas hiérarchiquement de `UNIVERS` (constat data, voir section 3)
-- `Dim_Temps` (`mois_vente`, 1-12) — pas d'année dans la source
+Conception : [`schema/schema_kado.md`](schema/schema_kado.md) · DDL : `db/postgres/kado.sql` · chargement : `db/load_kado.py`
 
-Le schéma relationnel + NoSQL du projet Homepedia complet (au-delà de ce bootstrap) reste à concevoir une fois les sources additionnelles identifiées — hors périmètre de ce follow-up.
+```
+            Dim_Client (cli_id)
+                  │
+Dim_Temps ── Fait_Vente ── Dim_Produit
+(mois, trimestre)  ticket_id (dimension dégénérée)   produit_id, libelle,
+                   cli_id, produit_id, mois_vente    famille, univers, maille
+                   prix_net (mesure)
+```
+
+| Table | Lignes |
+|---|---|
+| `kado.fait_vente` | 7 245 522 |
+| `kado.dim_client` | 853 514 |
+| `kado.dim_produit` | 1 484 |
+| `kado.dim_temps` | 12 |
+
+Chiffre d'affaires total : 43 256 372,18 €, identique au CSV au centime près (`db/check.py`).
+
+### Homepedia — PostgreSQL/PostGIS + MongoDB (en cours)
+
+Plan `2026-09-23-t-dat-901-stockage-bdd`, étapes 1-3 faites : référentiel géographique (18 régions, 101 départements, 34 875 communes + 45 arrondissements), `mutation_dvf` (1 403 428 actes), `annonce` (500) et `agence` (369). Clé pivot entre toutes les sources = **code INSEE de la commune**. MongoDB (JSON brut des annonces, textes) à venir.
+
+Vérification : `python db/check.py` → **26/26 PASS** (référentiel, DVF, Orpi, KaDo).
 
 ---
 
-## 3. Pipeline PySpark sur les ventes immobilières (france-real)
+## 3. Pipeline PySpark sur les ventes immobilières
 
-Trois jobs réalisés sur `france_total_real_estate_sales_2022.csv`, tous filtrés sur `Type local` ∈ {Appartement, Maison} avec surface bâtie renseignée et positive (1 156 643 lignes valides sur 1 159 521 candidates, 3 803 885 lignes au total dans le fichier).
+Lecture et nettoyage communs : `bootstrap/dvf.py`. Périmètre : `Type local` ∈ {Appartement, Maison}, valeur foncière renseignée, surface bâtie > 0, soit **1 156 643 lignes** sur 3 803 885 (19 exclues pour surface nulle).
 
-### Job 1 — Map : prix au m² (`scripts/job1_map_prix_m2.py`)
-Calcule `prix_m2 = Valeur fonciere / Surface reelle bati` pour chaque vente. **Anomalie détectée** : `prix_m2` atteint jusqu'à 46 M€/m² sur certaines lignes — symptôme du problème documenté au job suivant.
+### Le piège : une ligne n'est pas une vente
 
-### Job 2 — ReduceByKey : valeur foncière par département (`scripts/job2_reduce_valeur_departement.py`)
-**Problème de données identifié** : une même mutation (transaction) peut apparaître sur plusieurs lignes du CSV quand elle porte sur plusieurs lots (ex. maison + dépendance + garage vendus ensemble), avec la **même `Valeur fonciere` répétée sur chaque ligne**. Une somme brute par département compte donc cette valeur plusieurs fois.
+Une **mutation** (un acte) apparaît sur autant de lignes qu'elle a de lots, **avec la valeur de l'acte entier répétée sur chaque ligne**. Clé d'une mutation = date + code INSEE commune + nature + valeur (la même que le chargement PostgreSQL).
 
-- **226 186 lignes en doublon sur 1 156 643 (~19,6 %)**, identifiées par une clé de mutation (date + département + commune + section + numéro de plan + valeur foncière)
-- Écart entre somme brute et somme dédupliquée : **568,9 milliards € au niveau national**, avec un facteur très variable selon département (ex. département 22 : ×10,6 ; Paris : ×3,5 ; département 93 : ×8,3)
-- **Décision retenue** : la valeur foncière par département dédupliquée est l'indicateur à retenir pour Homepedia — la somme brute est trompeuse malgré le fait qu'elle corresponde à la lecture littérale de l'exercice bootstrap.
+> Correction par rapport à la première version : la clé ajoutait section + n° de plan, ce qui coupait en morceaux les actes portant sur plusieurs parcelles. Doublons : 226 186 → **241 242** ; écart brut / dédoublonné : 568,9 → **602,2 Md€**.
 
-### Job 3 — SortByKey : top 10 communes les plus chères par département (`scripts/job3_sortbykey_top10_communes.py`)
-Construit sur le même périmètre dédupliqué. Deux choix méthodologiques supplémentaires :
-- Indicateur de prix = **médiane** du prix/m² par commune plutôt que la moyenne, pour ne pas laisser les valeurs aberrantes du Job 1 dominer le classement
-- **Seuil minimum de 5 ventes par commune** pour entrer au classement, afin d'éviter qu'une commune à une seule vente (donc une donnée potentiellement isolée) ressorte en tête faute de volume
+### Job 1 — `map()` : prix au m² de chaque ligne (`scripts/job1_map_prix_m2.py`)
+`rdd.map(lambda r: (..., round(valeur / surface, 2)))`, transformation 1 → 1. Prix/m² moyen 13 145 €, maximum **46,6 M€/m²** : c'est le symptôme du piège ci-dessus (valeur d'un acte entier divisée par la surface d'un seul lot).
 
-30 672 communes évaluées, 19 326 au-dessus du seuil de volume. **Vérification de cohérence** : Paris 06 et Paris 07 en tête du département 75 (~15 200-15 245 €/m²), Saint-Jean-Cap-Ferrat en tête des Alpes-Maritimes (16 436 €/m²) — cohérent avec les communes reconnues comme les plus chères de France.
+### Job 2 — `reduceByKey()` : valeur foncière par département (`scripts/job2_reduce_valeur_departement.py`)
+
+| | Valeur |
+|---|---|
+| Lignes | 1 156 643 |
+| Mutations uniques | 915 401 |
+| Lignes en doublon | 241 242 (**20,9 %**) |
+| Total brut (lecture littérale de l'exercice) | 856,7 Md€ |
+| **Total dédoublonné (à retenir)** | **254,5 Md€** |
+
+Brut ÷ dédoublonné : Paris ×3,6 · Seine-Saint-Denis ×8,9 · **Côtes-d'Armor ×109**. Cas extrême vérifié en base : un seul acte du 2022-06-14 à 59 M€ couvre **1 735 logements** (vente en bloc). Répété sur ses lignes, il pèse à lui seul ~100 Md€ dans la somme brute.
+
+Deux `reduceByKey` : l'un garde une seule valeur par mutation (`lambda a, b: a`), l'autre somme par département (`add`).
+
+### Job 3 — `sortByKey()` : top 10 des communes les plus chères par département (`scripts/job3_sortbykey_top10_communes.py`)
+- Prix/m² calculé **par mutation**, seulement sur les ventes (`Vente`) **d'un seul logement** : 769 976 ventes.
+- **Médiane** par commune (robuste aux valeurs aberrantes), **5 ventes minimum** : 15 651 communes classées sur 29 008.
+- Top 10 par département (fonction de fenêtre), puis `sortByKey()` sur le code département normalisé (01 … 2A, 2B … 95, 971 … 974).
+
+| Contrôle de cohérence | Médiane €/m² | Ventes |
+|---|---|---|
+| 75 — Paris 6e | 15 000 | 921 |
+| 75 — Paris 7e | 14 846 | 1 073 |
+| 06 — Saint-Jean-Cap-Ferrat | 12 500 | 56 |
+
+Paris 6e recoupé par PostgreSQL : 14 998 €/m² (appartements seuls, médiane exacte).
 
 ---
 
 ## 4. Méthodologie de nettoyage — synthèse
 
-| Problème rencontré | Traitement appliqué |
+| Problème | Traitement |
 |---|---|
-| `Valeur fonciere` au format français (`"55000,00"`, virgule décimale, guillemets) | Parsing explicite (`,` → `.`, cast double) avant tout calcul |
-| Lignes sans `Type local` ou hors {Appartement, Maison} (terrains, locaux commerciaux, dépendances seules...) | Exclues (hors périmètre "marché résidentiel") |
-| Surface bâtie nulle ou absente (2 878 lignes) | Exclues (division par zéro / non calculable) |
-| Mutations multi-lots comptées plusieurs fois (~19,6 % des lignes) | Dédupliquées par clé composite (date + localisation + valeur) pour les agrégats (Job 2, Job 3) |
-| Valeurs de `prix_m2` aberrantes (jusqu'à 46 M€/m²) | Non filtrées au Job 1 (map brut demandé par l'exercice), neutralisées au Job 3 par l'usage de la médiane + seuil de volume plutôt qu'un filtrage arbitraire |
-| Hiérarchie produit KaDo supposée à 3 niveaux (FAMILLE > UNIVERS > MAILLE) | Invalidée par les données (`MAILLE` traverse plusieurs `UNIVERS`) — modélisée en attributs plats |
+| `Valeur fonciere` au format français (`"55000,00"`) | `,` → `.` puis cast en double |
+| Codes département non normalisés (`"6"`, `"972"`) | Complétés sur 2 caractères (`"06"`), sans tronquer les codes DOM |
+| Lignes hors {Appartement, Maison} | Exclues (marché résidentiel) |
+| Valeur foncière absente (2 859 lignes) ou surface nulle (19 lignes) | Exclues |
+| Actes multi-lots comptés plusieurs fois (20,9 % des lignes) | Clé de mutation pour les agrégats |
+| Prix/m² d'un acte à plusieurs logements non interprétable | Ventes d'un seul logement uniquement (job 3) |
+| Valeurs aberrantes | Médiane + seuil de volume plutôt qu'un filtrage arbitraire |
+| Hiérarchie produit KaDo supposée FAMILLE > UNIVERS > MAILLE | Invalidée (30 MAILLE sur 34 sous plusieurs UNIVERS) → attributs à plat, pas de flocon |
 
 ---
 
-## 5. Points ouverts pour le pédago
+## 5. Reproduire
 
-1. Confirmation de la source exacte du fichier `france_total_real_estate_sales_2022.csv` (DVF officiel retraité, ou autre origine ?)
-2. Plateforme pour le cluster Spark du projet complet (Databricks free edition, VM locale, tokens campus ?)
-3. Le `prix_m2` maximal de 46 M€/m² mérite-t-il un audit plus approfondi (erreur de saisie DVF vs cas réel type vente partielle/indivision) avant le rendu final, ou est-ce acceptable de le documenter comme limite connue ?
+```bash
+# Spark (bootstrap/.venv)
+bootstrap/.venv/Scripts/python bootstrap/scripts/job1_map_prix_m2.py        # idem job2, job3
+
+# Bases (.venv racine)
+docker compose -f db/docker-compose.yml --env-file db/.env up -d --wait
+.venv/Scripts/python db/load_referentiel.py && .venv/Scripts/python db/load_postgres.py && .venv/Scripts/python db/load_kado.py
+.venv/Scripts/python db/check.py
+```
+
+---
+
+## 6. Points ouverts pour le pédago
+
+1. Source exacte du fichier `france_total_real_estate_sales_2022.csv` (DVF officiel retraité ?)
+2. Plateforme pour le cluster Spark du projet complet (Databricks, VM, Spark en Docker ?)
+3. Scraping : le bootstrap suggère ville-ideale.fr (avis d'habitants) — Orpi retenu pour la richesse du JSON embarqué et un `robots.txt` permissif ; ville-ideale reste une piste pour la source textuelle / sentiment.
+
+
+Partir sur Mongo + MySQL
+
+LakeHouse + format parquet
+
+
