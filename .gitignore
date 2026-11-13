@@ -31,3 +31,6 @@ Thumbs.db
 
 # Cache des téléchargements (regénérable)
 db/data/
+
+# Driver JDBC Postgres (téléchargé par jobs/indicateurs_prix.py)
+jobs/lib/

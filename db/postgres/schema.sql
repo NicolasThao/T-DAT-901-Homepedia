@@ -55,6 +55,21 @@ ALTER TABLE region      ADD COLUMN IF NOT EXISTS contour       geometry(MultiPol
 ALTER TABLE region      ADD COLUMN IF NOT EXISTS contour_carte geometry(MultiPolygon, 4326);
 ALTER TABLE commune     ADD COLUMN IF NOT EXISTS contour_carte geometry(MultiPolygon, 4326);
 
+-- Indicateurs de prix (ajout MVP carte), écrits par le job Spark jobs/indicateurs_prix.py.
+-- Grain : (niveau_geo, code_geo, type_local, periode), cf. conventions AstroNey (ADR-040).
+-- Paris, Lyon, Marseille : le niveau commune est l'arrondissement (codage DVF).
+CREATE TABLE IF NOT EXISTS indicateurs_prix (
+    niveau_geo       text NOT NULL CHECK (niveau_geo IN ('commune', 'departement', 'region')),
+    code_geo         varchar(5) NOT NULL,
+    type_local       text NOT NULL CHECK (type_local IN ('Maison', 'Appartement', 'Tous')),
+    periode          integer NOT NULL,                  -- année des mutations
+    prix_m2_median   double precision NOT NULL,
+    nb_ventes        integer NOT NULL,
+    _source          text NOT NULL,
+    _date_ingestion  timestamptz NOT NULL,
+    PRIMARY KEY (niveau_geo, code_geo, type_local, periode)
+);
+
 -- ---------------------------------------------------------------------------
 -- Transactions DVF (une ligne par mutation, après dédoublonnage des lots)
 -- Une mutation = un acte = une valeur foncière. Le CSV répète cette valeur sur chaque
