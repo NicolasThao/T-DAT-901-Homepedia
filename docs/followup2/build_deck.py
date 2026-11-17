@@ -536,13 +536,97 @@ Contrôle prévu : la même vérification qu'aujourd'hui, médiane Spark = recal
 C'est la priorité du prochain palier : prendre en main la plateforme et automatiser le déploiement des pipelines
 (ingestion, nettoyage, calcul Spark, contrôles). Ensuite, intégrer une nouvelle source ou un nouveau calcul revient
 à ajouter un job, déployé et contrôlé de la même façon — c'est ce qui rend les paliers suivants rapides.
+Les 3 slides suivantes détaillent les pipelines qui tourneront sur la plateforme : prix, texte, socio-éco.
+Chacun suit la même chaîne automatisée : ingestion → nettoyage → calcul Spark → contrôles PASS/FAIL → tables lues par l'app.
 """)
 
 
-def s12_feuille_de_route(prs):
+def fiche_pipeline(prs, numero, rubrique_libelle, titre, lignes, contenu_notes):
+    """Fiche d'un pipeline : 4 lignes Objectif / Entrée / Traitement / Dans l'app, séparées par des filets."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 12, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
+    entete(s, numero, rubrique_libelle, titre)
+    y0, h = Inches(2.35), Inches(0.98)
+    x_lib, x_val = MARGE, MARGE + Inches(2.9)
+    for i, (libelle, valeur) in enumerate(lignes):
+        y = y0 + i * h
+        trait(s, MARGE, y, L - MARGE, y, couleur=BLEU if i == 0 else FILET, epaisseur=1.5 if i == 0 else 1.0)
+        texte(s, x_lib, y + Inches(0.42), Inches(2.7), Inches(0.4), libelle, taille=16, couleur=ORANGE)
+        texte(s, x_val, y + Inches(0.2), L - MARGE - x_val, Inches(0.7), valeur, taille=26, police=LEGER,
+              couleur=ENCRE, ancre=MSO_ANCHOR.MIDDLE)
+    trait(s, MARGE, y0 + 4 * h, L - MARGE, y0 + 4 * h)
+    notes(s, contenu_notes)
+
+
+ETAPES_PIPELINE = ("OBJECTIF", "ENTRÉE", "TRAITEMENT", "DANS L'APP")
+
+
+def s12_pipeline_prix(prs):
+    fiche_pipeline(prs, 12, "Pipeline prix  ·  23/11 – 13/12", "Pipeline 1 : prix de l'immobilier", list(zip(ETAPES_PIPELINE, [
+        "Prix médian et évolution, chaque zone",
+        "DVF Etalab, référentiel géographique",
+        "Regroupement par vente, filtres, médianes Spark",
+        "Carte choroplèthe, évolution, tableau",
+    ])), f"""
+Premier pipeline porté sur la plateforme : il tourne déjà en local, on l'industrialise.
+- Objectif : le prix médian au m² et son évolution, pour chaque commune, département et région, par type de bien et par année.
+- Entrée : DVF géolocalisées d'Etalab ({PERIODE}, {n(F['dvf_lignes_csv'])} lignes) et le référentiel geo.api.gouv.fr (communes, contours).
+- Traitement : regroupement des lignes par vente ({n(F['dvf_mutations'])} ventes), marquage des ventes douteuses et hors marché,
+  filtre des ventes de marché d'un seul logement (200 à {n(30000)} €/m²), médiane Spark par zone, type et année
+  → {n(F['indicateurs_lignes'])} indicateurs ; contrôle : médiane Spark = recalcul SQL, ligne par ligne.
+- Dans l'app : carte choroplèthe du prix, carte divergente de l'évolution entre deux années, infobulle avec la série,
+  tableau triable et exportable.
+Sur le cloud : DVF est republié deux fois par an (avril, octobre) ; le pipeline recharge l'année et recalcule sans intervention.
+""")
+
+
+def s13_pipeline_texte(prs):
+    fiche_pipeline(prs, 13, "Pipeline texte  ·  14/12 – 10/01", "Pipeline 2 : analyse de texte", list(zip(ETAPES_PIPELINE, [
+        "Qualifier les logements et les quartiers",
+        "Annonces Orpi, source d'avis",
+        "Caractéristiques extraites, sentiment, par commune",
+        "Couche carte, fiche territoire",
+    ])), f"""
+Le sujet exige une source textuelle traitée, pas une liste de commentaires (l'exemple des « rats » dans les avis).
+- Objectif : décrire l'état des logements et la perception des quartiers, commune par commune.
+- Entrée : les {F['annonces']} annonces Orpi déjà en base (description en texte libre, dans MongoDB), puis une source d'avis
+  réels, choisie en vérifiant ses conditions d'utilisation comme pour Orpi.
+- Traitement (ADR-042, deux branches) :
+  1. caractéristiques extraites des annonces : « travaux », « rénovation », « balcon »… (la recherche plein texte
+     trouve déjà {F['annonces_texte_balcon']} annonces avec « balcon ») ;
+  2. sentiment calculé sur les avis, avec un modèle de langue français pré-entraîné, choisi et documenté comme le demande le sujet.
+  Les descriptions d'annonces ne servent pas au sentiment : c'est du texte publicitaire, positif par construction.
+  Résultat par document dans MongoDB, agrégats par commune dans PostgreSQL (même clé INSEE).
+- Dans l'app : couches de la carte (part d'annonces « à rénover », sentiment moyen), et la fiche territoire
+  (thèmes les plus cités, extraits).
+""")
+
+
+def s14_pipeline_socio(prs):
+    fiche_pipeline(prs, 14, "Pipeline socio-éco  ·  11/01 – 31/01", "Pipeline 3 : socio-éco et risques", list(zip(ETAPES_PIPELINE, [
+        "Franchises et inégalités",
+        f"Revenus, population, DPE, argiles, +{F['sources_restantes']} sources",
+        "Jointure INSEE, écarts, score pondéré",
+        "Comparateur, scoring, couches carte",
+    ])), f"""
+Le pipeline qui sert directement les deux questions métier (slide 7).
+- Objectif : « Où ouvrir les 10 prochaines franchises ? » et « Comment réduire les inégalités dans mon département ? ».
+- Entrée : {F['sources_palier1']} sources open data (revenus INSEE Filosofi, population INSEE, diagnostics énergétiques ADEME,
+  risque retrait-gonflement des argiles Géorisques) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']} : établissements scolaires,
+  gares, chômage localisé, Base Adresse Nationale, source d'avis.
+- Traitement : standardisation sur le code INSEE (communes fusionnées comprises), jointure avec les prix,
+  indicateurs par zone (revenu médian, part de logements mal classés au DPE, exposition aux argiles),
+  écarts entre communes d'un même département pour les inégalités, score multi-critères normalisé
+  dont l'utilisateur règle les poids pour les franchises.
+- Dans l'app : chaque indicateur devient une couche de la carte ; le comparateur met des zones côte à côte ;
+  le scoring classe les zones selon les poids choisis ; tableau croisé, filtrable et exportable aux {F['echelles']} échelles.
+""")
+
+
+def s15_feuille_de_route(prs):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    fond(s, BLANC)
+    entete(s, 15, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
     paliers = [
         ("23/11 – 13/12", "Spark sur OVHcloud", "Pipelines déployés automatiquement"),
         ("14/12 – 10/01", "Analyse de texte", "Annonces et avis"),
@@ -563,14 +647,15 @@ def s12_feuille_de_route(prs):
     notes(s, f"""
 Nous sommes au début du premier palier. Chaque palier ajoute une brique sur le socle existant, sans rien
 reconstruire : même clé (code INSEE), mêmes bases, même mécanisme de contrôles PASS/FAIL.
-1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide précédente) et déploiement
+1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide 11) et déploiement
    automatisé des pipelines de données : ingestion, nettoyage, calcul, contrôles. C'est l'investissement qui rend
    les paliers suivants rapides — une nouvelle donnée ou un nouveau calcul devient un job de plus.
-2. 14/12 – 10/01 : analyse de texte. Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
+   Le pipeline prix (slide 12), qui tourne déjà en local, est le premier porté.
+2. 14/12 – 10/01 : analyse de texte (pipeline de la slide 13). Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
    sentiment calculé sur une source d'avis, agrégés par commune ; méthode et modèle documentés comme l'exige le sujet.
 3. 11/01 – 31/01 : {F['sources_palier1']} sources socio-économiques et risques (revenus INSEE Filosofi, population, DPE ADEME,
    retrait-gonflement des argiles) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']}, intégrées par les pipelines du
-   palier 1 ; pages Fiche territoire et Comparateur (slide 7).
+   palier 1 (pipeline de la slide 14) ; pages Fiche territoire et Comparateur (slide 7).
 4. 01/02 – 07/02 : gel des fonctionnalités, documentation (schéma, méthodologie de nettoyage, IA), répétition.
 Merci — questions ?
 """)
@@ -580,7 +665,8 @@ def main():
     prs = Presentation()
     prs.slide_width, prs.slide_height = L, H
     for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_spark, s07_application, s08_demo,
-              s09_evolution, s10_controles, s11_cloud, s12_feuille_de_route):
+              s09_evolution, s10_controles, s11_cloud, s12_pipeline_prix, s13_pipeline_texte, s14_pipeline_socio,
+              s15_feuille_de_route):
         f(prs)
     prs.save(SORTIE)
     print(f"-> {SORTIE.name} ({len(prs.slides)} slides)")
