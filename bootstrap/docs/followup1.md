@@ -116,6 +116,8 @@ bootstrap/.venv/Scripts/python bootstrap/scripts/job1_map_prix_m2.py        # id
 # Bases (.venv racine)
 docker compose -f db/docker-compose.yml --env-file db/.env up -d --wait
 .venv/Scripts/python db/load_referentiel.py && .venv/Scripts/python db/load_postgres.py && .venv/Scripts/python db/load_kado.py
+# Depuis le 2026-11-14, les ventes DVF sont chargées à part (DVF Etalab 2022-2025) :
+.venv/Scripts/python db/telecharger_dvf.py && .venv/Scripts/python db/load_dvf.py
 .venv/Scripts/python db/check.py
 ```
 

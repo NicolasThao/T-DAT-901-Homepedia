@@ -127,14 +127,16 @@ Avec le venv racine. Copier d'abord `db/.env.example` vers `db/.env` et changer 
 docker compose -f db/docker-compose.yml --env-file db/.env up -d --wait
 
 .venv\Scripts\python db\load_referentiel.py   # régions, départements, communes (API geo.api.gouv.fr)
-.venv\Scripts\python db\load_postgres.py      # mutations DVF + annonces Orpi (~8 min)
+.venv\Scripts\python db\telecharger_dvf.py   # DVF géolocalisées 2022-2025 (Etalab, ~415 Mo) -> db/data/dvf/
+.venv\Scripts\python db\load_dvf.py          # ventes DVF 2022-2025 (~8 min par année)
+.venv\Scripts\python db\load_postgres.py      # annonces Orpi
 .venv\Scripts\python db\load_mongo.py         # annonces Orpi brutes dans MongoDB
 .venv\Scripts\python db\load_kado.py          # KaDo en schéma en étoile (~4 min)
 .venv\Scripts\python db\load_contours.py      # contours départements / régions pour la carte (~1 min)
 
-bootstrap\.venv\Scripts\python jobs\indicateurs_prix.py   # job Spark : indicateurs de prix (~40 s)
+bootstrap\.venv\Scripts\python jobs\indicateurs_prix.py   # job Spark : indicateurs de prix, 4 années (~2 min)
 
-.venv\Scripts\python db\check.py              # contrôles PASS/FAIL, attendu : 47/47
+.venv\Scripts\python db\check.py              # contrôles PASS/FAIL, attendu : 74/74 (plusieurs minutes : relit les fichiers DVF)
 ```
 
 PostgreSQL écoute sur le port **5433** de la machine (`POSTGRES_PORT` dans `db/.env`). Si un autre conteneur l'occupe déjà (`docker ps`), l'arrêter ou changer `POSTGRES_PORT`. Tous les chargements sont rejouables : les relancer ne crée pas de doublons.
@@ -149,10 +151,17 @@ Bases démarrées et job Spark lancé (section 3), puis :
 
 ```powershell
 .venv\Scripts\streamlit run app\main.py      # s'ouvre sur http://localhost:8501
-.venv\Scripts\python -m pytest app\test_app.py   # tests de l'app, attendu : 11 passed
+.venv\Scripts\python -m pytest app\test_app.py   # tests de l'app, attendu : 33 passed
 ```
 
-Page Carte : France colorée par prix au m² médian (DVF), choix Tous / Appartement / Maison, clic sur une région puis un département pour descendre jusqu'aux communes (arrondissements à Paris, Lyon, Marseille). Zones grisées : moins de 30 ventes. Le tableau à droite reprend les chiffres de la carte et s'exporte en CSV.
+Page Carte, deux indicateurs :
+
+- **Prix au m²** : France colorée par prix au m² médian (DVF) d'une année (2022 à 2025). Zones grisées : moins de 30 ventes.
+- **Évolution** : variation du prix médian entre deux années choisies (bleu = baisse, rouge = hausse, gris = stable à ±2 %). Zones sans couleur, contour pointillé : moins de 30 ventes l'une des deux années. L'infobulle donne le prix de chaque année.
+
+Choix Tous / Appartement / Maison, clic sur une région puis un département pour descendre jusqu'aux communes (arrondissements à Paris, Lyon, Marseille). Le tableau à droite reprend les chiffres de la carte et s'exporte en CSV.
+
+Après une modification de `app/carte.py` ou `app/donnees.py`, redémarrer `streamlit run` : le serveur ne recharge pas les modules importés.
 
 ---
 

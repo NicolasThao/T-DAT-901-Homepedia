@@ -71,45 +71,74 @@ def check_referentiel(cur):
         controle(f"repère {nom} -> {attendu}", trouve == attendu, f"trouvé {trouve}")
 
 
+def attendus_dvf(annee):
+    """Attendus d'une année, recalculés depuis le fichier Etalab avec pandas, sans le loader."""
+    import pandas as pd
+    from load_dvf import fichier
+    d = pd.read_csv(fichier(annee), dtype=str, keep_default_na=False, usecols=[
+        "id_mutation", "nature_mutation", "code_commune", "type_local", "id_parcelle", "code_nature_culture",
+        "surface_reelle_bati", "nombre_pieces_principales", "lot1_numero", "adresse_code_voie",
+        "adresse_numero"])
+    log = d[d["type_local"].isin(["Maison", "Appartement"])]
+    locaux = (log["id_parcelle"] + "|" + log["type_local"] + "|" + log["surface_reelle_bati"] + "|"
+              + log["nombre_pieces_principales"] + "|" + log["lot1_numero"])
+    adresses = log["adresse_code_voie"] + "|" + log["adresse_numero"]
+    # Logements identiques : nombre de lignes pour une même culture (max sur les cultures), sommé
+    par_culture = log.groupby([log["id_mutation"], locaux, log["code_nature_culture"]]).size()
+    nb_logements = par_culture.groupby(level=[0, 1]).max().groupby(level=0).sum()
+    # Mêmes règles que le chargeur, recalculées ici : une ligne hors marché rend la vente hors marché ;
+    # vente sur plusieurs communes -> commune du logement s'il y en a un, sinon le plus petit code.
+    marche = d["nature_mutation"].isin(["Vente", "Vente en l'état futur d'achèvement"])
+    code = d.groupby("id_mutation")["code_commune"].min()
+    code_logement = log.groupby("id_mutation")["code_commune"].min()
+    code.loc[code_logement.index] = code_logement
+    return {
+        "lignes": len(d),
+        "ventes": d["id_mutation"].nunique(),
+        "codes": set(code.unique()),
+        "un_logement": int((nb_logements == 1).sum()),
+        "douteux": int((adresses.groupby(log["id_mutation"]).nunique() > 1).sum()),
+        "hors_marche": int((~marche).groupby(d["id_mutation"]).any().sum()),
+    }
+
+
 def check_dvf(cur):
-    # Attendus recalculés depuis le CSV source, indépendamment du loader
-    from load_postgres import lire_dvf
-    staging = lire_dvf()
-    nb_lignes, nb_mutations = len(staging), staging["cle"].nunique()
+    from telecharger_dvf import ANNEES
     codes_connus = {r[0] for r in cur.execute("SELECT code_insee FROM commune")}
-    codes_inconnus = set(staging["code_insee"].unique()) - codes_connus
+    par_annee = {a: r for a, *r in cur.execute("""
+        SELECT extract(year FROM date_mutation)::int, count(*), sum(nb_lignes_source),
+               count(DISTINCT code_insee_source) FILTER (WHERE code_insee IS NULL),
+               count(*) FILTER (WHERE nb_logements = 1),
+               count(*) FILTER (WHERE prix_m2_douteux), count(*) FILTER (WHERE hors_marche),
+               count(*) FILTER (WHERE _source IS DISTINCT FROM 'dvf-geolocalisees-etalab')
+        FROM mutation_dvf GROUP BY 1""")}
+    controle("mutation_dvf contient exactement les années chargées", sorted(par_annee) == list(ANNEES),
+             str(sorted(par_annee)))
 
-    n = cur.execute("SELECT count(*) FROM mutation_dvf").fetchone()[0]
-    controle(f"mutation_dvf : {n} mutations", n == nb_mutations, f"attendu {nb_mutations}")
-
-    lignes = cur.execute("SELECT sum(nb_lignes_source) FROM mutation_dvf").fetchone()[0]
-    controle("aucune ligne DVF perdue à l'agrégation", lignes == nb_lignes, f"{lignes} / {nb_lignes}")
-
-    sans_commune = cur.execute(
-        "SELECT count(DISTINCT code_insee_source) FROM mutation_dvf WHERE code_insee IS NULL").fetchone()[0]
-    controle("code_insee NULL uniquement pour les codes absents du référentiel",
-             sans_commune == len(codes_inconnus), f"{sans_commune} codes, attendu {len(codes_inconnus)}")
-
-    # Ordre de grandeur connu : Paris 6e / 7e ~15 000 €/m² (Follow-up 1, job 3)
-    mediane = cur.execute("""
-        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2) FROM mutation_dvf
-        WHERE code_insee = '75106' AND nb_logements = 1 AND type_local = 'Appartement'
-          AND nature_mutation = 'Vente'""").fetchone()[0]
-    controle("médiane prix/m² Paris 6e plausible (10 000 - 20 000 €)",
-             mediane is not None and 10_000 <= mediane <= 20_000, f"{mediane:.0f} €/m²" if mediane else "aucune")
-
-    # Qualité (étape 3ter) : attendus recalculés depuis le CSV
-    logements = staging[staging["type_local"].isin(["Maison", "Appartement"])]
-    attendu = int((logements.groupby("cle")["adresse"].nunique() > 1).sum())
-    n = cur.execute("SELECT count(*) FROM mutation_dvf WHERE prix_m2_douteux").fetchone()[0]
-    controle("prix_m2_douteux = actes à logements d'adresses différentes", n == attendu,
-             f"{n}, attendu {attendu}")
-
-    natures_marche = ["Vente", "Vente en l'état futur d'achèvement"]
-    hors = staging.drop_duplicates("cle")
-    attendu = int((~hors["nature"].isin(natures_marche)).sum())
-    n = cur.execute("SELECT count(*) FROM mutation_dvf WHERE hors_marche").fetchone()[0]
-    controle("hors_marche = natures hors Vente / VEFA", n == attendu, f"{n}, attendu {attendu}")
+    for annee in ANNEES:
+        if annee not in par_annee:
+            continue
+        ventes, lignes, sans_commune, un_logement, douteux, hors, autre_source = par_annee[annee]
+        a = attendus_dvf(annee)
+        controle(f"{annee} : {ventes} ventes (une par id_mutation)", ventes == a["ventes"], f"attendu {a['ventes']}")
+        controle(f"{annee} : aucune ligne du fichier perdue", lignes == a["lignes"], f"{lignes} / {a['lignes']}")
+        controle(f"{annee} : source unique (DVF géolocalisées Etalab)", autre_source == 0, f"{autre_source} autres")
+        inconnus = len(a["codes"] - codes_connus)
+        controle(f"{annee} : code_insee NULL uniquement pour les codes absents du référentiel",
+                 sans_commune == inconnus, f"{sans_commune} codes, attendu {inconnus}")
+        controle(f"{annee} : ventes d'un seul logement (logements identiques comptés par culture)",
+                 un_logement == a["un_logement"], f"{un_logement}, attendu {a['un_logement']}")
+        controle(f"{annee} : prix_m2_douteux = logements à adresses différentes", douteux == a["douteux"],
+                 f"{douteux}, attendu {a['douteux']}")
+        controle(f"{annee} : hors_marche = natures hors Vente / VEFA", hors == a["hors_marche"],
+                 f"{hors}, attendu {a['hors_marche']}")
+        # Ordre de grandeur connu : Paris 6e ~15 000 €/m² (Follow-up 1, job 3)
+        mediane = cur.execute("""
+            SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2) FROM mutation_dvf
+            WHERE code_insee = '75106' AND nb_logements = 1 AND type_local = 'Appartement'
+              AND nature_mutation = 'Vente' AND extract(year FROM date_mutation) = %s""", (annee,)).fetchone()[0]
+        controle(f"{annee} : médiane prix/m² Paris 6e plausible (10 000 - 20 000 €)",
+                 mediane is not None and 10_000 <= mediane <= 20_000, f"{mediane:.0f} €/m²" if mediane else "aucune")
 
     vefa_exclue = cur.execute(
         "SELECT count(*) FROM mutation_dvf WHERE hors_marche AND nature_mutation LIKE '%futur%'").fetchone()[0]

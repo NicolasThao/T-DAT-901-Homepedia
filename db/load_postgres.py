@@ -1,14 +1,13 @@
 """
-Étape 3 — Charge dans PostgreSQL les transactions DVF 2022 et les annonces Orpi.
+Étape 3 — Charge dans PostgreSQL les annonces Orpi (et leurs agences).
 Prérequis : python db/load_referentiel.py (schéma + communes).
+Les ventes DVF sont chargées par db/load_dvf.py (DVF géolocalisées 2022-2025, depuis le 2026-11-14).
 
-Rejouable : upsert sur les clés naturelles (cle_mutation, id_orpi, nom+adresse d'agence).
+Rejouable : upsert sur les clés naturelles (id_orpi, nom+adresse d'agence).
 
 Usage : python db/load_postgres.py
 """
 
-import io
-import time
 
 import numpy as np
 import pandas as pd
@@ -16,122 +15,8 @@ import pandas as pd
 from config import DB_DIR, postgres
 
 ROOT = DB_DIR.parent
-DVF_ZIP = ROOT / "bootstrap" / "data" / "france_total_real_estate_sales_2022.csv.zip"
 ORPI_CSV = ROOT / "scraping" / "orpi" / "data" / "orpi" / "listings_clean.csv"
 ORPI_JSONL = ORPI_CSV.with_name("listings_raw.jsonl")
-
-# ---------------------------------------------------------------------------
-# DVF
-# ---------------------------------------------------------------------------
-
-STAGING_DVF = """
-CREATE TEMP TABLE dvf_brut (
-    cle              text,
-    date_mutation    date,
-    nature           text,
-    valeur           numeric(15, 2),
-    code_insee       char(5),
-    section          text,
-    no_plan          text,
-    adresse          text,
-    type_local       text,
-    surface_bati     numeric,
-    nb_pieces        numeric,
-    surface_terrain  numeric
-) ON COMMIT DROP
-"""
-
-# Une ligne par acte. Les surfaces de terrain sont sommées sur les parcelles distinctes,
-# car le CSV répète la parcelle pour chaque local qu'elle porte.
-AGREGATION_DVF = """
-INSERT INTO mutation_dvf (cle_mutation, date_mutation, nature_mutation, valeur_fonciere,
-                          code_insee_source, code_insee, type_local, nb_logements,
-                          surface_bati_m2, nb_pieces, surface_terrain_m2, nb_lignes_source,
-                          nb_adresses)
-SELECT m.cle, m.date_mutation, m.nature, m.valeur, m.code_insee, c.code_insee,
-       m.type_local, m.nb_logements, m.surface_bati, m.nb_pieces, t.surface_terrain, m.nb_lignes,
-       m.nb_adresses
-FROM (
-    SELECT cle,
-           min(date_mutation) AS date_mutation, min(nature) AS nature,
-           min(valeur) AS valeur, min(code_insee) AS code_insee,
-           count(*) AS nb_lignes,
-           count(*) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS nb_logements,
-           count(DISTINCT adresse) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS nb_adresses,
-           sum(surface_bati) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS surface_bati,
-           sum(nb_pieces) FILTER (WHERE type_local IN ('Maison', 'Appartement')) AS nb_pieces,
-           CASE
-               WHEN count(DISTINCT type_local) FILTER (WHERE type_local IN ('Maison', 'Appartement')) > 1
-                   THEN 'Mixte'
-               ELSE coalesce(max(type_local) FILTER (WHERE type_local IN ('Maison', 'Appartement')),
-                             max(type_local) FILTER (WHERE type_local LIKE 'Local%%'),
-                             max(type_local))
-           END AS type_local
-    FROM dvf_brut
-    GROUP BY cle
-) AS m
-LEFT JOIN (
-    SELECT cle, sum(surface_terrain) AS surface_terrain
-    FROM (SELECT DISTINCT cle, section, no_plan, surface_terrain FROM dvf_brut) AS parcelles
-    GROUP BY cle
-) AS t USING (cle)
-LEFT JOIN commune AS c ON c.code_insee = m.code_insee
-ON CONFLICT (cle_mutation) DO UPDATE SET
-    date_mutation = EXCLUDED.date_mutation, nature_mutation = EXCLUDED.nature_mutation,
-    valeur_fonciere = EXCLUDED.valeur_fonciere, code_insee_source = EXCLUDED.code_insee_source,
-    code_insee = EXCLUDED.code_insee, type_local = EXCLUDED.type_local,
-    nb_logements = EXCLUDED.nb_logements, surface_bati_m2 = EXCLUDED.surface_bati_m2,
-    nb_pieces = EXCLUDED.nb_pieces, surface_terrain_m2 = EXCLUDED.surface_terrain_m2,
-    nb_lignes_source = EXCLUDED.nb_lignes_source, nb_adresses = EXCLUDED.nb_adresses
-"""
-
-
-def lire_dvf():
-    # Pas de drop_duplicates : le fichier n'a pas de numéro de lot, deux lignes identiques
-    # sont le plus souvent deux lots distincts (ex. deux caves de même surface sur une parcelle).
-    df = pd.read_csv(DVF_ZIP, dtype=str, encoding="utf-8", keep_default_na=False)
-
-    dep = df["Code departement"].str.zfill(2)
-    com = df["Code commune"].str.zfill(3)
-    # DOM : département sur 3 caractères (971) + 2 derniers chiffres de la commune -> 97101
-    code_insee = np.where(dep.str.len() == 3, dep + com.str[-2:], dep + com)
-    d = df["Date mutation"]  # jj/mm/aaaa
-    date_iso = d.str[6:10] + "-" + d.str[3:5] + "-" + d.str[0:2]
-    valeur = df["Valeur fonciere"].str.replace(",", ".", regex=False)
-
-    staging = pd.DataFrame({
-        "cle": date_iso + "|" + code_insee + "|" + df["Nature mutation"] + "|" + valeur,
-        "date_mutation": date_iso,
-        "nature": df["Nature mutation"],
-        "valeur": valeur,
-        "code_insee": code_insee,
-        "section": df["Section"],
-        "no_plan": df["No plan"],
-        "adresse": df["Code voie"] + "|" + df["No voie"],
-        "type_local": df["Type local"],
-        "surface_bati": df["Surface reelle bati"],
-        "nb_pieces": df["Nombre pieces principales"],
-        "surface_terrain": df["Surface terrain"],
-    })
-    return staging
-
-
-def charger_dvf(cur):
-    t0 = time.time()
-    staging = lire_dvf()
-    print(f"DVF : {len(staging)} lignes lues ({time.time() - t0:.0f} s)")
-
-    cur.execute(STAGING_DVF)
-    buffer = io.StringIO()
-    staging.to_csv(buffer, index=False, header=False)  # champ vide non quoté -> NULL en COPY CSV
-    buffer.seek(0)
-    with cur.copy("COPY dvf_brut FROM STDIN WITH (FORMAT csv)") as copy:
-        while chunk := buffer.read(1 << 20):
-            copy.write(chunk)
-
-    cur.execute(AGREGATION_DVF)
-    print(f"DVF : {cur.rowcount} mutations insérées/mises à jour ({time.time() - t0:.0f} s)")
-
 
 # ---------------------------------------------------------------------------
 # Orpi
@@ -271,11 +156,9 @@ def charger_orpi(cur):
 def main():
     with postgres() as conn, conn.cursor() as cur:
         cur.execute((DB_DIR / "postgres" / "schema.sql").read_text(encoding="utf-8"))
-        charger_dvf(cur)
         charger_orpi(cur)
     with postgres() as conn:
         conn.autocommit = True
-        conn.execute("VACUUM ANALYZE mutation_dvf")
         conn.execute("VACUUM ANALYZE annonce")
         conn.execute("VACUUM ANALYZE agence")
 

@@ -3,8 +3,9 @@ Lecture et nettoyage communs aux 3 jobs PySpark sur france_total_real_estate_sal
 
 Une MUTATION (un acte de vente) apparait sur plusieurs lignes du CSV quand elle porte
 sur plusieurs lots ou plusieurs parcelles, avec la MEME "Valeur fonciere" repetee sur
-chaque ligne. Cle d'une mutation = date + code INSEE commune + nature + valeur, la meme
-que db/load_postgres.py. (La premiere version du Follow-up 1 ajoutait section + n° de
+chaque ligne. Cle d'une mutation = date + code INSEE commune + nature + valeur (le CSV du
+bootstrap n'a pas d'identifiant de vente ; la base, elle, charge DVF Etalab avec id_mutation,
+cf. db/load_dvf.py). (La premiere version du Follow-up 1 ajoutait section + n° de
 plan : cela coupait en plusieurs morceaux les actes qui portent sur plusieurs parcelles.)
 """
 

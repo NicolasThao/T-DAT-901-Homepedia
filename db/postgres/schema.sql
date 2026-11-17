@@ -1,3 +1,8 @@
+-- Plusieurs chargeurs exécutent ce fichier, parfois en même temps : le DDL (ALTER TABLE, verrou
+-- exclusif) est sérialisé, sinon deux exécutions s'interbloquent (vu le 2026-11-14). Le verrou
+-- tient jusqu'à la fin de la transaction qui exécute le fichier.
+SELECT pg_advisory_xact_lock(901);
+
 -- Schéma relationnel Homepedia (PostgreSQL 17 + PostGIS 3.5)
 -- Idempotent : rejouable sans erreur (IF NOT EXISTS partout).
 --
@@ -78,34 +83,42 @@ CREATE TABLE IF NOT EXISTS indicateurs_prix (
 
 CREATE TABLE IF NOT EXISTS mutation_dvf (
     id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    cle_mutation        text NOT NULL UNIQUE,              -- date|code_insee_source|nature|valeur
+    cle_mutation        text NOT NULL UNIQUE,              -- id_mutation d'Etalab (cf. bloc multi-années)
     date_mutation       date NOT NULL,
     nature_mutation     text NOT NULL,
     valeur_fonciere     numeric(15, 2),
-    code_insee_source   char(5) NOT NULL,                  -- code tel que lu dans DVF
-    code_insee          char(5) REFERENCES commune,        -- NULL si commune fusionnée depuis 2022
+    code_insee_source   char(5) NOT NULL,                  -- code commune de la vente (celle du logement si plusieurs)
+    code_insee          char(5) REFERENCES commune,        -- NULL si le code est absent du référentiel
     type_local          text,                              -- Maison / Appartement / Mixte / autre type / NULL (terrain seul)
-    nb_logements        integer NOT NULL,                  -- lots Maison + Appartement de l'acte
+    nb_logements        integer NOT NULL,                  -- logements de la vente (identiques comptés par culture)
     surface_bati_m2     numeric(12, 2),                    -- somme des surfaces des logements
     nb_pieces           integer,
-    surface_terrain_m2  numeric(14, 2),                    -- somme sur parcelles distinctes
-    nb_lignes_source    integer NOT NULL,                  -- lignes CSV fusionnées dans la mutation
+    surface_terrain_m2  numeric(14, 2),                    -- somme sur (parcelle, culture) distincts
+    nb_lignes_source    integer NOT NULL,                  -- lignes du fichier fusionnées dans la vente
     prix_m2             numeric(12, 2) GENERATED ALWAYS AS (
                             CASE WHEN surface_bati_m2 > 0 THEN valeur_fonciere / surface_bati_m2 END
                         ) STORED
 );
 
 -- Qualité (ajout étape 3ter) : les lignes douteuses sont marquées, jamais supprimées.
--- nb_adresses : adresses distinctes (voie + numéro) parmi les logements de l'acte. La clé de
--- mutation ne contient ni n° de disposition ni parcelle (absents du CSV) : deux ventes d'un
--- même programme neuf (même jour, même commune, même prix) peuvent être fusionnées ; leur
--- prix/m² = une valeur / somme des surfaces serait alors sous-estimé.
+-- nb_adresses : adresses distinctes (voie + numéro) parmi les logements de la vente. Une vente de
+-- logements à plusieurs adresses (ex. lots d'un programme) a un prix/m² = une valeur / somme des
+-- surfaces qui ne représente aucun logement : prix_m2_douteux.
 ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS nb_adresses integer;
 ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS prix_m2_douteux boolean
     GENERATED ALWAYS AS (nb_adresses > 1) STORED;
 -- Hors marché : échange, adjudication, expropriation, terrain à bâtir (seuls Vente et VEFA restent)
 ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS hors_marche boolean
     GENERATED ALWAYS AS (nature_mutation NOT IN ('Vente', 'Vente en l''état futur d''achèvement')) STORED;
+
+-- Multi-années (2026-11-14) : source DVF géolocalisées d'Etalab, 2022-2025 (db/load_dvf.py).
+-- cle_mutation = id_mutation d'Etalab (unique dans une livraison, pas d'une livraison à l'autre :
+-- une année est toujours rechargée en entier). code_insee_source = code commune actuel d'Etalab.
+-- position = moyenne des points des logements de la vente (à défaut, de ses parcelles).
+ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS position geometry(Point, 4326);
+ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS _source text;
+ALTER TABLE mutation_dvf ADD COLUMN IF NOT EXISTS _date_ingestion timestamptz;
+CREATE INDEX IF NOT EXISTS idx_mutation_position ON mutation_dvf USING gist (position);
 
 CREATE INDEX IF NOT EXISTS idx_mutation_commune_date ON mutation_dvf (code_insee, date_mutation);
 CREATE INDEX IF NOT EXISTS idx_mutation_type_local   ON mutation_dvf (type_local);

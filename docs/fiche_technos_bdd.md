@@ -26,7 +26,7 @@
 ```
  Orpi (web) ──► scraping ──► listings_raw.jsonl ──► nettoyage ──► listings_clean.csv ──┐
                                                                                         ├──► PostgreSQL + PostGIS ──┐
- DVF 2022 (CSV de 3,8 M lignes) ───────────────────────────────────────────────────────┤                           ├──► requêtes croisées
+ DVF Etalab 2022-2025 (15,7 M lignes) ─────────────────────────────────────────────────┤                           ├──► requêtes croisées
  geo.api.gouv.fr (communes + contours) ────────────────────────────────────────────────┘                           │    (db/check.py)
                                                        listings_raw.jsonl ────────────────► MongoDB ───────────────┘
 ```
@@ -34,7 +34,8 @@
 | Étape | Script | Rôle |
 |---|---|---|
 | Référentiel | `db/load_referentiel.py` | Régions, départements, communes, contours |
-| Chargement SQL | `db/load_postgres.py` | Ventes DVF et annonces Orpi (pandas) |
+| Ventes DVF | `db/telecharger_dvf.py` puis `db/load_dvf.py` | DVF géolocalisées 2022-2025 (Etalab), une ligne par vente |
+| Chargement SQL | `db/load_postgres.py` | Annonces Orpi (pandas) |
 | Chargement NoSQL | `db/load_mongo.py` | Annonces brutes |
 | Vérification | `db/check.py` | PASS ou FAIL sur chaque contrôle |
 
@@ -128,10 +129,12 @@ Extrait de `db/load_postgres.py` :
 ### Rejouer un chargement sans doublon : l'upsert
 
 ```sql
-ON CONFLICT (cle_mutation) DO UPDATE SET
+ON CONFLICT (id_orpi) DO UPDATE SET
 ```
 
-« Insérer ; si cette vente existe déjà, la mettre à jour. » On peut relancer `load_postgres.py` dix fois : mêmes 1 403 428 mutations.
+« Insérer ; si cette annonce existe déjà, la mettre à jour. » On peut relancer `load_postgres.py` dix fois : mêmes 500 annonces.
+
+DVF fait autrement : l'identifiant de vente d'Etalab change d'une livraison à l'autre, donc `load_dvf.py` supprime une année puis la recharge en entier, dans une seule transaction. Si le chargement plante, l'année d'avant reste intacte.
 
 ---
 
@@ -204,7 +207,7 @@ Extrait de `db/docker-compose.yml` :
 
 ---
 
-## 7. Démarrer en 5 commandes
+## 7. Démarrer
 
 Depuis la racine du dépôt (Docker installé) :
 
@@ -212,7 +215,9 @@ Depuis la racine du dépôt (Docker installé) :
 cp db/.env.example db/.env        # puis changer les mots de passe
 docker compose -f db/docker-compose.yml --env-file db/.env up -d
 python db/load_referentiel.py     # communes + contours (appel à geo.api.gouv.fr, long la 1re fois)
-python db/load_postgres.py        # ventes DVF + annonces Orpi (~5 à 8 min)
+python db/telecharger_dvf.py      # DVF 2022-2025 (~415 Mo, une seule fois)
+python db/load_dvf.py             # ventes DVF, une transaction par année
+python db/load_postgres.py        # annonces Orpi
 python db/load_mongo.py           # annonces brutes
 python db/check.py                # doit finir par « PASS »
 ```
@@ -226,12 +231,12 @@ Chaque chargement est rejouable. `check.py` sort avec un code d'erreur s'il y a 
 | Piège | Explication | Où c'est géré |
 |---|---|---|
 | **Code postal ≠ code INSEE** | Un code postal couvre souvent plusieurs communes ; seul le code INSEE identifie une commune | `docs/schema_bdd.md`, section 3 |
-| **Zéros de tête perdus** | `01053` lu comme nombre devient `1053`. On lit tout en texte et on complète | `load_postgres.py` : `dep = df["Code departement"].str.zfill(2)` |
+| **Zéros de tête perdus** | `01053` lu comme nombre devient `1053`. On lit tout en texte et on complète | `load_postgres.py` : `o["code_postal"].str.zfill(5)` |
 | **NULL ≠ 0** | Un prix non affiché n'est pas un prix de 0 €. NULL = « inconnu », il ne fausse pas les moyennes | `schema.sql` : `prix integer CHECK (prix > 0)` |
 | **« Sans schéma » ≠ « sans structure »** | Mongo accepte tout, donc c'est à nous de rester cohérents | `load_mongo.py` construit chaque document de la même façon |
-| **Oublier les index** | La requête marche, mais lentement sur 1,4 M de lignes | `docs/schema_bdd.md`, section 4 |
+| **Oublier les index** | La requête marche, mais lentement sur 5,6 M de ventes | `docs/schema_bdd.md`, section 4 |
 | **Mot de passe dans git** | Un secret commité reste dans l'historique | `db/.env` ignoré, seul `.env.example` est versionné |
-| **Clé de mutation approximative** | Le CSV DVF n'a pas d'identifiant de vente : deux ventes d'un même programme neuf peuvent être fusionnées. Les lignes concernées sont marquées `prix_m2_douteux`, pas supprimées | `docs/schema_bdd.md`, section 3 |
+| **Une vente, plusieurs lignes** | DVF répète une vente sur autant de lignes que de lots, parcelles et natures de culture : compter des lignes surestime les ventes et les logements | `load_dvf.py`, `docs/schema_bdd.md` |
 | **Un contrôle qui passe n'est pas une preuve de qualité** | `check.py` vérifie des comptes et des liens, pas que les prix soient justes | À garder en tête avant de présenter un chiffre |
 
 ---

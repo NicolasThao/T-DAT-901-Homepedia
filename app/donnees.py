@@ -52,6 +52,42 @@ def zones(niveau, parent, type_local, periode):
         ]
 
 
+def zones_series(niveau, parent, type_local):
+    """Zones d'une échelle avec la série complète de leurs prix (toutes les années).
+
+    Renvoie une liste de dicts : code, nom, geometrie, serie = [(periode, prix_m2_median, nb_ventes)].
+    Ne dépend pas des années choisies : un seul passage en base (et en cache) par échelle et type de bien.
+    """
+    sql = f"""
+        SELECT z.code, z.nom, z.geom, s.periodes, s.prix, s.ventes
+        FROM ({ZONES[niveau]}) AS z(code, nom, geom)
+        LEFT JOIN LATERAL (
+            SELECT array_agg(periode ORDER BY periode) AS periodes,
+                   array_agg(prix_m2_median ORDER BY periode) AS prix,
+                   array_agg(nb_ventes ORDER BY periode) AS ventes
+            FROM indicateurs_prix
+            WHERE niveau_geo = %(niveau)s AND code_geo = z.code AND type_local = %(type_local)s) AS s ON true
+        ORDER BY z.nom"""
+    zones = []
+    with postgres() as conn:
+        for code, nom, geom, periodes, prix, ventes in conn.execute(
+                sql, {"parent": parent, "niveau": niveau, "type_local": type_local}):
+            zones.append({"code": code, "nom": nom, "geometrie": json.loads(geom),
+                          "serie": list(zip(periodes or [], prix or [], ventes or []))})
+    return zones
+
+
+def zones_evolution(zones, debut, fin):
+    """Ajoute à chaque zone de `zones_series` le prix et les ventes des années `debut` et `fin`
+    (None / 0 si aucune vente retenue cette année-là). Renvoie de nouveaux dicts (le cache reste intact)."""
+    resultat = []
+    for z in zones:
+        par_annee = {p: (px, n) for p, px, n in z["serie"]}
+        (pd_, vd), (pf, vf) = par_annee.get(debut, (None, 0)), par_annee.get(fin, (None, 0))
+        resultat.append({**z, "prix_debut": pd_, "ventes_debut": vd, "prix_fin": pf, "ventes_fin": vf})
+    return resultat
+
+
 def zone_au_point(niveau, parent, lat, lon):
     """Code de la zone affichée (même échelle, même parent) qui contient le point cliqué, ou None."""
     sql = f"""
@@ -78,7 +114,8 @@ def ventes_non_localisees(periode):
     with postgres() as conn:
         return conn.execute("""
             SELECT count(*) FROM mutation_dvf
-            WHERE code_insee IS NULL AND extract(year FROM date_mutation) = %s
+            WHERE code_insee IS NULL AND date_mutation >= make_date(%s, 1, 1)
+              AND date_mutation < make_date(%s + 1, 1, 1)
               AND NOT hors_marche AND NOT prix_m2_douteux AND nb_logements = 1
               AND type_local IN ('Maison', 'Appartement') AND prix_m2 BETWEEN 200 AND 30000""",
-            (periode,)).fetchone()[0]
+            (periode, periode)).fetchone()[0]
