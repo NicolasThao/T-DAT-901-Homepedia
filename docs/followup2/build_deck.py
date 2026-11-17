@@ -50,6 +50,16 @@ def n(x):
     return f"{x:,}".replace(",", " ")
 
 
+def pct(x):
+    """Variation signée au format français : −7,3 % (espace insécable avant %)."""
+    return f"{x:+.1f}\u00a0%".replace("-", "−").replace(".", ",")
+
+
+PERIODE = f"{F['annee_debut']}-{F['annee_fin']}"
+# Palette divergente de l'app (app/carte.py DIVERGENTE), baisse -> hausse
+DIVERGENTE = [RGBColor.from_string(c) for c in ("104281", "2A78D6", "86B6EF", "D2D0C8", "EF9A95", "E34948", "A3201F")]
+
+
 # --- Primitives ------------------------------------------------------------------------------
 
 def fond(slide, couleur):
@@ -196,7 +206,7 @@ def s02_etapes(prs):
     notes(s, f"""
 Le sujet impose 4 étapes : collecte, organisation en bases, analyse big data, visualisation interactive.
 Chacune a déjà une brique qui fonctionne de bout en bout, de la donnée brute jusqu'à l'écran.
-- Collecte : DVF 2022 (ventes réelles, DGFiP), référentiel géographique geo.api.gouv.fr, {F['annonces']} annonces Orpi.
+- Collecte : DVF {PERIODE} (ventes réelles, DGFiP, publiées par Etalab), référentiel géographique geo.api.gouv.fr, {F['annonces']} annonces Orpi.
 - Bases : PostgreSQL/PostGIS pour le tabulaire et le spatial, MongoDB pour le texte des annonces.
 - Big data : un job Spark calcule les prix médians, recontrôlé en SQL.
 - Visualisation : application Streamlit, carte région → département → commune.
@@ -235,7 +245,8 @@ def s03_sources(prs):
     notes(s, f"""
 Le sujet demande au moins une douzaine de sources, dont une textuelle.
 En place et chargées en base :
-1. DVF 2022 (Demandes de Valeurs Foncières, DGFiP) : {n(F['dvf_lignes_csv'])} lignes, toutes les ventes immobilières de l'année.
+1. DVF {PERIODE} (Demandes de Valeurs Foncières, DGFiP, version géolocalisée d'Etalab) : {n(F['dvf_lignes_csv'])} lignes,
+   toutes les ventes immobilières de {F['annees_dvf']} années complètes.
 2. Référentiel géographique geo.api.gouv.fr : {F['regions']} régions, {F['departements']} départements, {n(F['communes'])} communes et leurs contours.
 3. Annonces Orpi : {F['annonces']} annonces de vente collectées par scraping (robots.txt respecté, 1 requête par seconde),
    avec la description en texte libre — c'est notre source textuelle.
@@ -270,7 +281,7 @@ def s04_bases(prs):
     notes(s, f"""
 Le sujet impose une base relationnelle ET une base non relationnelle : on a choisi selon la nature de la donnée.
 - PostgreSQL + PostGIS : référentiel géographique (hiérarchie région → département → commune, contours),
-  {n(F['dvf_mutations'])} actes de vente DVF, et les champs structurés des annonces (prix, surface, DPE, position).
+  {n(F['dvf_mutations'])} ventes DVF ({PERIODE}), et les champs structurés des annonces (prix, surface, DPE, position).
   Index B-tree sur les clés de jointure, index spatiaux GiST sur les géométries.
 - MongoDB : l'annonce brute telle que scrapée, dont la description. Structure variable, index plein texte
   (ex. « balcon » renvoie {F['annonces_texte_balcon']} annonces), et un champ réservé au résultat de l'analyse de sentiment.
@@ -285,14 +296,14 @@ def s05_nettoyage(prs):
     fond(s, BLEU)
     entete(s, 5, "Nettoyage", "Lignes regroupées par vente, aucune perdue", sombre=True)
     y = Inches(3.0)
-    texte(s, MARGE, y, Inches(5.0), Inches(1.4), n(F["dvf_lignes_csv"]), taille=80, police=TITRE, couleur=BLANC)
-    texte(s, MARGE, y + Inches(1.45), Inches(5.0), Inches(0.5), "lignes du fichier DVF", taille=20,
+    texte(s, MARGE, y, Inches(5.0), Inches(1.4), n(F["dvf_lignes_csv"]), taille=72, police=TITRE, couleur=BLANC)
+    texte(s, MARGE, y + Inches(1.45), Inches(5.0), Inches(0.5), f"lignes DVF {PERIODE}", taille=20,
           police=LEGER, couleur=BLANC)
     texte(s, MARGE + Inches(4.9), y - Inches(0.25), Inches(1.9), Inches(0.4), "regroupées", taille=18,
           police=CORPS, couleur=VERT, align=PP_ALIGN.CENTER)
     texte(s, MARGE + Inches(4.9), y + Inches(0.05), Inches(1.9), Inches(1.3), "→", taille=72, police=LEGER,
           couleur=VERT, align=PP_ALIGN.CENTER)
-    texte(s, MARGE + Inches(6.8), y, Inches(5.0), Inches(1.4), n(F["dvf_mutations"]), taille=80, police=TITRE,
+    texte(s, MARGE + Inches(6.8), y, Inches(5.0), Inches(1.4), n(F["dvf_mutations"]), taille=72, police=TITRE,
           couleur=BLANC)
     texte(s, MARGE + Inches(6.8), y + Inches(1.45), Inches(5.0), Inches(0.5), "ventes distinctes", taille=20,
           police=LEGER, couleur=BLANC)
@@ -300,16 +311,18 @@ def s05_nettoyage(prs):
     texte(s, MARGE, Inches(5.85), Inches(11), Inches(0.5), "Ventes douteuses marquées, jamais supprimées.",
           taille=20, police=CORPS, couleur=BLANC)
     notes(s, f"""
-Le fichier DVF a une ligne par lot ou par parcelle : un même acte de vente apparaît sur plusieurs lignes,
+DVF a une ligne par lot, par parcelle et par nature de culture : une même vente apparaît sur plusieurs lignes,
 avec le prix total répété. Compter les lignes revient à compter plusieurs fois la même vente.
-On regroupe donc les lignes par acte (date + commune + nature + valeur) : {n(F['dvf_lignes_csv'])} lignes → {n(F['dvf_mutations'])} ventes.
-Ce n'est pas une perte : un contrôle automatique vérifie que la somme des lignes sources de chaque vente
-redonne exactement le total du fichier.
-Standardisation : codes INSEE sur 5 caractères (y compris outre-mer), dates ISO, virgules décimales, arrondissements de Paris/Lyon/Marseille.
+On regroupe donc les lignes par vente (identifiant de mutation d'Etalab), sur les {F['annees_dvf']} années {PERIODE} :
+{n(F['dvf_lignes_csv'])} lignes → {n(F['dvf_mutations'])} ventes, dont {n(F['dvf_ventes_fin'])} en {F['annee_fin']}.
+Ce n'est pas une perte : un contrôle automatique vérifie, année par année, que la somme des lignes sources
+de chaque vente redonne exactement le total du fichier.
+Un logement répété sur plusieurs natures de culture (sol, jardin…) n'est compté qu'une fois.
+Standardisation : codes INSEE sur 5 caractères, dates ISO, arrondissements de Paris/Lyon/Marseille.
 Rien n'est supprimé, tout est marqué :
 - {n(F['dvf_douteuses'])} ventes avec un prix au m² douteux (plusieurs logements à des adresses différentes) ;
 - {n(F['dvf_hors_marche'])} ventes hors marché (échanges, adjudications, expropriations) ;
-- {F['dvf_codes_fusionnes']} codes de communes fusionnées depuis 2022, conservés et comptés.
+- {F['dvf_codes_inconnus']} codes de communes absents du référentiel actuel, conservés et comptés.
 L'app affiche ces limites en clair sous la carte. Méthodologie complète : docs/schema_bdd.md.
 """)
 
@@ -318,15 +331,16 @@ def s06_spark(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
     entete(s, 6, "Big data", "Spark calcule les prix médians, SQL les vérifie")
-    y, w, gap = Inches(2.6), Inches(3.0), Inches(1.37)
+    y, w = Inches(2.6), Inches(3.25)
+    gap = (LARGEUR - 3 * w) / 2
     etapes = [(n(F["ventes_retenues"]), "ventes retenues", ENCRE), ("Spark", "médiane par zone", BLEU),
-              (n(F["indicateurs_lignes"]), "indicateurs en base", ENCRE)]
+              (n(F["indicateurs_lignes"]), "indicateurs stockés", ENCRE)]
     for i, (gros, petit, couleur) in enumerate(etapes):
         x = MARGE + i * (w + gap)
-        texte(s, x, y, w, Inches(1.2), gros, taille=64, police=TITRE, couleur=couleur)
+        texte(s, x, y, w, Inches(1.2), gros, taille=60, police=TITRE, couleur=couleur)
         texte(s, x, y + Inches(1.2), w, Inches(0.5), petit, taille=19, police=LEGER, couleur=GRIS)
         if i < 2:
-            texte(s, x + w, y + Inches(0.1), gap, Inches(1), "→", taille=48, police=LEGER, couleur=ORANGE,
+            texte(s, x + w, y + Inches(0.15), gap, Inches(1), "→", taille=40, police=LEGER, couleur=ORANGE,
                   align=PP_ALIGN.CENTER)
     trait(s, MARGE, Inches(4.75), L - MARGE, Inches(4.75))
     texte(s, MARGE, Inches(4.95), Inches(2.2), Inches(1.4), str(F["ecarts_spark_sql"]), taille=96, police=TITRE,
@@ -336,21 +350,22 @@ def s06_spark(prs):
           taille=22, police=LEGER, couleur=ENCRE)
     notes(s, f"""
 Le job Spark (jobs/indicateurs_prix.py) lit les ventes dans PostgreSQL et ne garde que les ventes de marché
-d'un seul logement (maison ou appartement, prix entre 200 et {n(30000)} €/m²) : {n(F['ventes_retenues'])} ventes.
+d'un seul logement (maison ou appartement, prix entre 200 et {n(30000)} €/m²) : {n(F['ventes_retenues'])} ventes
+sur {PERIODE}.
 Les autres ne sont pas perdues : elles restent en base, marquées (ventes de plusieurs logements, locaux d'activité, hors marché).
-Il calcule la médiane du prix au m² pour chaque commune, département et région, par type de bien.
+Il calcule la médiane du prix au m² pour chaque commune, département et région, par type de bien et par année.
 Résultat : {n(F['indicateurs_lignes'])} indicateurs écrits en base, avec leur source et leur date de calcul.
 Pourquoi la médiane : une vente aberrante ne la déplace pas, contrairement à la moyenne.
 Vérification : un contrôle recalcule en SQL la médiane de TOUTES les zones et compare avec Spark :
 {F['ecarts_spark_sql']} écart. Relancer le job redonne la même table (idempotence vérifiée).
-Aujourd'hui Spark tourne en local sur une machine ; il passera sur OVHcloud Data Platform (slide 9).
+Aujourd'hui Spark tourne en local sur une machine ; il passera sur OVHcloud Data Platform (slide 10).
 """)
 
 
-def capture_recadree():
-    """Carte France sans les contrôles Leaflet (zoom, échelle, attribution, citée sous l'image)."""
-    src, dst = ICI / "captures" / "1_france_carte.png", ICI / "captures" / "1_france_carte_recadree.png"
-    Image.open(src).crop((230, 60, 1420, 1170)).save(dst)
+def capture_recadree(nom="1_france", boite=(230, 60, 1420, 1170)):
+    """Carte sans les contrôles Leaflet (zoom, échelle, attribution, citée sous l'image)."""
+    src, dst = ICI / "captures" / f"{nom}_carte.png", ICI / "captures" / f"{nom}_carte_recadree.png"
+    Image.open(src).crop(boite).save(dst)
     return dst
 
 
@@ -375,19 +390,57 @@ def s07_demo(prs):
           couleur=ORANGE)
     notes(s, f"""
 [BASCULER SUR L'APP — http://localhost:8501 — déroulé dans docs/followup2/demo.md]
-1. France par région, toutes ventes : l'Île-de-France ressort à {n(F['prix_france_idf'])} €/m².
+1. France par région, toutes ventes de {F['annee_fin']} (année affichée par défaut) : l'Île-de-France ressort à {n(F['prix_france_idf'])} €/m².
 2. Clic sur l'Île-de-France → ses départements. Paris : {n(F['prix_paris'])} €/m².
 3. Clic sur Paris → les arrondissements. Appartements du 6e : {n(F['prix_paris_6e_appart'])} €/m² (filtre Appartement).
 4. Le tableau à droite reprend exactement les chiffres de la carte, se trie et s'exporte en CSV.
 5. Zones grisées : moins de {F['seuil_ventes']} ventes — on préfère ne rien afficher qu'un prix non significatif.
+6. Bouton « Évolution » : on enchaîne sur la slide suivante.
 Si la démo ne répond pas : captures du parcours dans docs/followup2/captures/.
 """)
 
 
-def s08_controles(prs):
+def s08_evolution(prs):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    fond(s, BLANC)
+    entete(s, 8, "Évolution", f"Paris : {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']}")
+    pic = image(s, capture_recadree("5_evolution_paris"), MARGE, Inches(2.0), Inches(6.2), Inches(4.65))
+    texte(s, MARGE, pic.top + pic.height + Inches(0.08), pic.width, Inches(0.25), "Fond de carte © Esri",
+          taille=10, couleur=GRIS).name = "chrome attribution"
+    x = MARGE + Inches(6.9)
+    texte(s, x, Inches(2.2), Inches(4.8), Inches(0.4), "VARIATION DU PRIX MÉDIAN", taille=14, couleur=GRIS)
+    for i, c in enumerate(DIVERGENTE):
+        rect(s, x + i * Inches(0.5), Inches(2.65), Inches(0.5), Inches(0.3), remplissage=c)
+    texte(s, x, Inches(3.05), Inches(4.0), Inches(0.4), [[("baisse", {}), ("  →  ", {"couleur": GRIS}), ("hausse", {})]],
+          taille=16, police=LEGER, couleur=ENCRE)
+    texte(s, x, Inches(3.9), Inches(1.4), Inches(1.2), str(F["arrondissements_en_baisse"]), taille=72, police=TITRE,
+          couleur=BLEU)
+    texte(s, x + Inches(1.4), Inches(4.2), Inches(3.4), Inches(0.8),
+          [f"arrondissements sur {F['arrondissements_compares']}", "en baisse"], taille=20, police=LEGER, couleur=ENCRE)
+    soulignement(s, x, Inches(5.55))
+    texte(s, x, Inches(5.75), Inches(4.8), Inches(0.5),
+          [[("Île-de-France  ", {"couleur": GRIS}), (pct(F["variation_idf_pct"]), {"couleur": ENCRE, "police": TITRE, "taille": 24})]],
+          taille=16, police=LEGER)
+    notes(s, f"""
+Le sujet demande l'évolution des prix : on a chargé {F['annees_dvf']} années complètes de DVF ({PERIODE}),
+avec les mêmes règles de nettoyage pour chaque année, contrôlées année par année.
+Dans l'app, le bouton « Évolution » compare deux années au choix, aux {F['echelles']} échelles.
+- Paris : prix médian au m² {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']} ;
+  {F['arrondissements_en_baisse']} arrondissements sur {F['arrondissements_compares']} sont en baisse.
+- Île-de-France : {pct(F['variation_idf_pct'])}. En France, {F['departements_en_baisse']} départements sur {F['departements_compares']}
+  et {F['regions_en_baisse']} régions sur {F['regions_comparees']} sont en baisse sur la période.
+Palette divergente : bleu = baisse, rouge = hausse, gris = stable (entre −2 et +2 %).
+Une zone n'est colorée que si elle a au moins {F['seuil_ventes']} ventes chacune des deux années :
+une variation calculée sur quelques ventes ne veut rien dire.
+On compare des médianes, jamais des moyennes.
+Plan B : captures/4_evolution_france_app.png et 5_evolution_paris_app.png.
+""")
+
+
+def s09_controles(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLEU)
-    entete(s, 8, "Qualité", "Bases et application vérifiées automatiquement", sombre=True)
+    entete(s, 9, "Qualité", "Bases et application vérifiées automatiquement", sombre=True)
     for i, (gros, petit) in enumerate([(F["controles_bdd"], "contrôles sur les bases"),
                                         (F["tests_app"], "tests de l'application")]):
         x = MARGE + i * Inches(5.6)
@@ -397,19 +450,19 @@ def s08_controles(prs):
               [[(petit, {}), ("   PASS", {"couleur": VERT, "police": TITRE})]], taille=22, police=LEGER, couleur=BLANC)
     notes(s, f"""
 Une commande, db/check.py, rejoue {F['controles_bdd']} contrôles et rend PASS ou FAIL :
-nombres de lignes attendus, aucune ligne DVF perdue, contours géographiques valides,
+pour chacune des {F['annees_dvf']} années DVF : ventes attendues et aucune ligne perdue ; contours géographiques valides,
 repères connus (la Tour Eiffel tombe bien dans le 7e arrondissement), cohérence PostgreSQL ↔ MongoDB,
 absence de données personnelles d'agence, et médianes Spark = recalcul SQL.
 Les {F['tests_app']} tests de l'application vérifient qu'elle démarre et affiche la carte aux {F['echelles']} échelles,
-et qu'un clic tombe sur la bonne zone.
+en prix et en évolution, qu'un clic tombe sur la bonne zone et que les couleurs de variation suivent la légende.
 Les chiffres de ce deck sont eux-mêmes extraits de la base par un script, pas recopiés à la main.
 """)
 
 
-def s09_cloud(prs):
+def s10_cloud(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 9, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
+    entete(s, 10, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
     colonnes = [
         ("AUJOURD'HUI", "Spark local", "1 machine", ENCRE),
         ("OVHCLOUD DATA PLATFORM", "Spark distribué", "1 driver + N exécuteurs", BLEU),
@@ -445,10 +498,10 @@ Contrôle prévu : la même vérification qu'aujourd'hui, médiane Spark = recal
 """)
 
 
-def s10_feuille_de_route(prs):
+def s11_feuille_de_route(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 10, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
+    entete(s, 11, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
     paliers = [
         ("23/11 – 13/12", "Socio-éco", "Revenus, DPE, risques"),
         ("14/12 – 10/01", "Analyse de texte", "Sentiment des annonces"),
@@ -484,7 +537,7 @@ def main():
     prs = Presentation()
     prs.slide_width, prs.slide_height = L, H
     for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_spark, s07_demo,
-              s08_controles, s09_cloud, s10_feuille_de_route):
+              s08_evolution, s09_controles, s10_cloud, s11_feuille_de_route):
         f(prs)
     prs.save(SORTIE)
     print(f"-> {SORTIE.name} ({len(prs.slides)} slides)")

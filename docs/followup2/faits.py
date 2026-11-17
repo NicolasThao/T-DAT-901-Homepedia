@@ -18,6 +18,7 @@ sys.path.insert(0, str(RACINE / "db"))
 from config import mongo, postgres  # noqa: E402
 
 SORTIE = Path(__file__).resolve().parent / "faits.json"
+DEBUT, FIN = 2022, 2025  # années DVF chargées (db/telecharger_dvf.py ANNEES) ; l'app affiche FIN par défaut
 
 # Filtre des ventes retenues par le job Spark (jobs/indicateurs_prix.py)
 FILTRE_VENTES = """NOT hors_marche AND NOT prix_m2_douteux AND nb_logements = 1
@@ -35,8 +36,10 @@ def faits_postgres():
             "dvf_mutations": un(c, "SELECT count(*) FROM mutation_dvf"),
             "dvf_douteuses": un(c, "SELECT count(*) FROM mutation_dvf WHERE prix_m2_douteux"),
             "dvf_hors_marche": un(c, "SELECT count(*) FROM mutation_dvf WHERE hors_marche"),
-            "dvf_codes_fusionnes": un(c, """SELECT count(DISTINCT code_insee_source)
-                                            FROM mutation_dvf WHERE code_insee IS NULL"""),
+            "dvf_codes_inconnus": un(c, """SELECT count(DISTINCT code_insee_source)
+                                           FROM mutation_dvf WHERE code_insee IS NULL"""),
+            "dvf_ventes_fin": un(c, "SELECT count(*) FROM mutation_dvf WHERE date_mutation >= make_date(%s, 1, 1)",
+                                 (FIN,)),
             "ventes_retenues": un(c, f"SELECT count(*) FROM mutation_dvf WHERE code_insee IS NOT NULL AND {FILTRE_VENTES}"),
             "indicateurs_lignes": un(c, "SELECT count(*) FROM indicateurs_prix"),
             "regions": un(c, "SELECT count(*) FROM region"),
@@ -44,22 +47,46 @@ def faits_postgres():
             "communes": un(c, "SELECT count(*) FROM commune WHERE type = 'commune-actuelle'"),
             "arrondissements": un(c, "SELECT count(*) FROM commune WHERE type = 'arrondissement-municipal'"),
             "communes_avec_prix": un(c, """SELECT count(*) FROM indicateurs_prix
-                                          WHERE niveau_geo = 'commune' AND type_local = 'Tous'"""),
-            "communes_fiables": un(c, """SELECT count(*) FROM indicateurs_prix
-                                        WHERE niveau_geo = 'commune' AND type_local = 'Tous' AND nb_ventes >= 30"""),
+                                          WHERE niveau_geo = 'commune' AND type_local = 'Tous' AND periode = %s""",
+                                     (FIN,)),
+            "communes_fiables": un(c, """SELECT count(*) FROM indicateurs_prix WHERE niveau_geo = 'commune'
+                                        AND type_local = 'Tous' AND nb_ventes >= 30 AND periode = %s""", (FIN,)),
             "annonces": un(c, "SELECT count(*) FROM annonce"),
             "agences": un(c, "SELECT count(*) FROM agence"),
             "annonces_sans_commune": un(c, "SELECT count(*) FROM annonce WHERE code_insee IS NULL"),
         }
-        # Repères de démo (médianes du job Spark, type « Tous » sauf mention)
+        # Repères de démo (médianes du job Spark de l'année FIN, celle que l'app affiche par défaut)
         rep = """SELECT round(prix_m2_median)::int FROM indicateurs_prix
-                 WHERE niveau_geo = %s AND code_geo = %s AND type_local = %s"""
-        f["prix_france_idf"] = un(c, rep, ("region", "11", "Tous"))
-        f["prix_paris_6e_appart"] = un(c, rep, ("commune", "75106", "Appartement"))
-        f["prix_paris"] = un(c, rep, ("departement", "75", "Tous"))
+                 WHERE niveau_geo = %s AND code_geo = %s AND type_local = %s AND periode = %s"""
+        f["prix_france_idf"] = un(c, rep, ("region", "11", "Tous", FIN))
+        f["prix_paris_6e_appart"] = un(c, rep, ("commune", "75106", "Appartement", FIN))
+        f["prix_paris"] = un(c, rep, ("departement", "75", "Tous", FIN))
+        f.update(faits_evolution(c))
         f["ventes_spark"] = un(c, """SELECT sum(nb_ventes) FROM indicateurs_prix
                                     WHERE niveau_geo = 'region' AND type_local = 'Tous'""")
     return f
+
+
+def faits_evolution(c):
+    """Variation du prix médian DEBUT -> FIN, mêmes règles que l'app (app/carte.py variation) :
+    seulement si les deux années ont au moins 30 ventes."""
+    sql = """SELECT a.code_geo, round(((b.prix_m2_median / a.prix_m2_median - 1) * 100)::numeric, 1)::float
+             FROM indicateurs_prix a JOIN indicateurs_prix b USING (niveau_geo, code_geo, type_local)
+             WHERE a.niveau_geo = %s AND a.type_local = 'Tous' AND a.periode = %s AND b.periode = %s
+               AND a.nb_ventes >= 30 AND b.nb_ventes >= 30"""
+    var = {niveau: dict(c.execute(sql, (niveau, DEBUT, FIN)).fetchall()) for niveau in ("region", "departement")}
+    paris = dict(c.execute(sql.replace("a.niveau_geo = %s", "a.niveau_geo = %s AND a.code_geo LIKE '751%%'"),
+                           ("commune", DEBUT, FIN)).fetchall())
+    return {
+        "variation_idf_pct": var["region"]["11"],
+        "variation_paris_pct": var["departement"]["75"],
+        "arrondissements_en_baisse": sum(v < 0 for v in paris.values()),
+        "arrondissements_compares": len(paris),
+        "departements_en_baisse": sum(v < 0 for v in var["departement"].values()),
+        "departements_compares": len(var["departement"]),
+        "regions_en_baisse": sum(v < 0 for v in var["region"].values()),
+        "regions_comparees": len(var["region"]),
+    }
 
 
 def faits_mongo():
@@ -87,12 +114,14 @@ def faits_controles():
 
 # Faits qui ne viennent pas d'une requête : inventaire du dépôt et calendrier du projet.
 FAITS_DECLARES = {
-    "sources_en_place": 3,           # DVF 2022, geo.api.gouv.fr, annonces Orpi
+    "sources_en_place": 3,           # DVF 2022-2025, geo.api.gouv.fr, annonces Orpi
     "sources_visees": 12,            # sujet v2.1 p.3 : « at least a dozen »
     "sources_palier1": 4,            # revenus, population, DPE, argiles (feuille de route, d'ici le 13/12)
     "sources_restantes": 5,          # 12 - 3 en place - 4 du palier 1 (d'ici le 31/01)
     "seuil_ventes": 30,              # app/carte.py SEUIL_VENTES
-    "annee_dvf": 2022,
+    "annee_debut": DEBUT,
+    "annee_fin": FIN,
+    "annees_dvf": FIN - DEBUT + 1,
     "etapes_sujet": 4,               # sujet v2.1 p.2 : gathering, database, big data, visualizations
     "bases": 2,                      # PostgreSQL + MongoDB
     "echelles": 3,                   # commune, département, région

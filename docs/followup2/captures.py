@@ -1,7 +1,8 @@
 """
 Follow-up 2 — captures de l'app (deck + plan B si la démo live plante).
 
-Parcours : France (régions) -> clic Paris -> Île-de-France (départements) -> clic Paris -> arrondissements.
+Parcours : France (régions) -> clic Paris -> Île-de-France (départements) -> clic Paris -> arrondissements,
+puis le même parcours en mode « Évolution » (années par défaut : la première et la dernière chargées).
 Le clic passe par Leaflet (latLngToContainerPoint) : on clique un lieu, pas un pixel deviné.
 
 Usage : app lancée sur http://localhost:8501, puis
@@ -69,6 +70,16 @@ def main():
         cliquer(page, *PARIS)
         page.get_by_role("button", name="Paris").wait_for(timeout=60_000)
         capturer(page, "3_paris")
+        page.goto(URL)  # nouvelle session Streamlit : retour à la France
+        attendre_rendu(page)
+        page.get_by_text("Évolution", exact=True).click()
+        capturer(page, "4_evolution_france")
+        cliquer(page, *PARIS)
+        page.get_by_role("button", name="Île-de-France").wait_for(timeout=60_000)
+        attendre_rendu(page)
+        cliquer(page, *PARIS)
+        page.get_by_role("button", name="Paris").wait_for(timeout=60_000)
+        capturer(page, "5_evolution_paris")
         nav.close()
 
 

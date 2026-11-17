@@ -24,7 +24,7 @@ FAITS = json.loads((ICI / "faits.json").read_text(encoding="utf-8"))
 MOTS_MAX = 30
 # Nombres légitimes qui ne sont pas des faits de la base : numéros de slide, constantes de méthode
 # (bornes 200-30 000 €/m² du job Spark, horizon de 15 ans cité par le sujet), port de l'app, identifiants.
-CONSTANTES = {200, 30000, 15, 901, 2026, 2027, 8501} | set(range(1, 11))
+CONSTANTES = {200, 30000, 15, 901, 2026, 2027, 8501} | set(range(1, 13))
 MOIS = r"(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)"
 DATE = re.compile(r"\b\d{1,2}/\d{1,2}\b")
 NOMBRE = re.compile(r"\d+(?:[  ]\d{3})*(?:,\d+)?")  # milliers : espace fine insécable, cf. n()
@@ -56,7 +56,8 @@ def textes(slide, chrome=True):
 
 def main():
     prs = Presentation(DECK)
-    valeurs = {float(v) for v in FAITS.values()} | {float(c) for c in CONSTANTES}
+    # Valeur absolue : une variation « −7,3 % » est lue 7,3 (le signe est typographique, pas dans le nombre)
+    valeurs = {abs(float(v)) for v in FAITS.values()} | {float(c) for c in CONSTANTES}
     controle(8 <= len(prs.slides) <= 12, f"nombre de slides : {len(prs.slides)} (attendu 8-12)")
     for i, slide in enumerate(prs.slides, 1):
         note = slide.notes_slide.notes_text_frame.text if slide.has_notes_slide else ""
