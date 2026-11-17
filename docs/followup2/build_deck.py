@@ -210,7 +210,8 @@ Chacune a déjà une brique qui fonctionne de bout en bout, de la donnée brute 
 - Bases : PostgreSQL/PostGIS pour le tabulaire et le spatial, MongoDB pour le texte des annonces.
 - Big data : un job Spark calcule les prix médians, recontrôlé en SQL.
 - Visualisation : application Streamlit, carte région → département → commune.
-La suite consiste à élargir chaque brique : plus de sources, l'analyse de texte, Spark sur OVHcloud Data Platform.
+La suite : d'abord Spark et des pipelines déployés automatiquement sur OVHcloud Data Platform, puis l'analyse de texte,
+puis les nouvelles sources, qui s'ajoutent alors comme de simples jobs.
 """)
 
 
@@ -224,6 +225,7 @@ def s03_sources(prs):
     gap = Inches(0.25)
     cw, ch = (LARGEUR - 3 * gap) / 4, Inches(1.25)
     cases = ([(nom, BLEU, BLANC) for nom in en_place] + [(nom, BLEU_PALE, ENCRE) for nom in palier1])
+    # Feuille de route : les 4 sources socio-éco et les 5 dernières arrivent au même palier (11/01 – 31/01)
     for i, (nom, fond_case, encre) in enumerate(cases):
         ligne, col = divmod(i, 4)
         x, y = MARGE + col * (cw + gap), Inches(2.5) + ligne * (ch + gap)
@@ -232,13 +234,12 @@ def s03_sources(prs):
               ancre=MSO_ANCHOR.MIDDLE)
     # 8e case : les sources restantes, sans cases vides
     x, y = MARGE + 3 * (cw + gap), Inches(2.5) + ch + gap
-    rect(s, x, y, cw, ch, contour=BLEU, epaisseur=1.5)
+    rect(s, x, y, cw, ch, remplissage=BLEU_PALE)
     texte(s, x + Inches(0.25), y, cw - Inches(0.5), ch,
-          f"+{F['sources_restantes']} sources", taille=28, couleur=BLEU,
+          f"+{F['sources_restantes']} sources", taille=28, couleur=ENCRE,
           police=TITRE, ancre=MSO_ANCHOR.MIDDLE)
     y_leg = Inches(5.55)
-    for j, (style, libelle) in enumerate([((BLEU, None), "chargées en base"), ((BLEU_PALE, None), "d'ici le 13/12"),
-                                          ((None, BLEU), "d'ici le 31/01")]):
+    for j, (style, libelle) in enumerate([((BLEU, None), "chargées en base"), ((BLEU_PALE, None), "d'ici le 31/01")]):
         x = MARGE + j * Inches(3.0)
         rect(s, x, y_leg + Inches(0.06), Inches(0.22), Inches(0.22), remplissage=style[0], contour=style[1])
         texte(s, x + Inches(0.35), y_leg, Inches(2.6), Inches(0.4), libelle, taille=16, couleur=GRIS)
@@ -250,11 +251,13 @@ En place et chargées en base :
 2. Référentiel géographique geo.api.gouv.fr : {F['regions']} régions, {F['departements']} départements, {n(F['communes'])} communes et leurs contours.
 3. Annonces Orpi : {F['annonces']} annonces de vente collectées par scraping (robots.txt respecté, 1 requête par seconde),
    avec la description en texte libre — c'est notre source textuelle.
-D'ici le 13/12, {F['sources_palier1']} sources en open data, reliées par le code INSEE de la commune : revenus (INSEE Filosofi),
+D'ici le 31/01, une fois les pipelines déployés automatiquement sur la plateforme cloud (priorité du premier palier),
+{F['sources_palier1']} sources socio-économiques en open data, reliées par le code INSEE de la commune : revenus (INSEE Filosofi),
 population, diagnostics énergétiques (ADEME), risque retrait-gonflement des argiles (Géorisques — répond à la
-question du sujet sur le risque climatique à 15 ans).
-D'ici le 31/01, {F['sources_restantes']} de plus pour atteindre {F['sources_visees']} : établissements scolaires, gares, chômage localisé (INSEE),
+question du sujet sur le risque climatique à 15 ans) ;
+et {F['sources_restantes']} de plus pour atteindre {F['sources_visees']} : établissements scolaires, gares, chômage localisé (INSEE),
 Base Adresse Nationale, et une source d'avis textuels.
+Chaque nouvelle source = un job ajouté au pipeline, pas un chantier à part.
 """)
 
 
@@ -358,7 +361,42 @@ Résultat : {n(F['indicateurs_lignes'])} indicateurs écrits en base, avec leur 
 Pourquoi la médiane : une vente aberrante ne la déplace pas, contrairement à la moyenne.
 Vérification : un contrôle recalcule en SQL la médiane de TOUTES les zones et compare avec Spark :
 {F['ecarts_spark_sql']} écart. Relancer le job redonne la même table (idempotence vérifiée).
-Aujourd'hui Spark tourne en local sur une machine ; il passera sur OVHcloud Data Platform (slide 10).
+Aujourd'hui Spark tourne en local sur une machine ; il passera sur OVHcloud Data Platform (slide 11).
+""")
+
+
+def s07_application(prs):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    fond(s, BLANC)
+    entete(s, 7, "Application", "Trois pages pour deux questions métier")
+    pages = [
+        ("EN PLACE", "Carte", "Prix, évolution, puis autres indicateurs", True),
+        ("À VENIR", "Fiche territoire", "Une zone, tous ses chiffres", False),
+        ("À VENIR", "Comparateur", "Scoring franchises, écarts d'inégalités", False),
+    ]
+    gap = Inches(0.6)
+    w = (LARGEUR - 2 * gap) / 3
+    for i, (etat, titre, detail, fait) in enumerate(pages):
+        x = MARGE + i * (w + gap)
+        rect(s, x, Inches(2.7), w, Inches(0.09), remplissage=BLEU if fait else FILET)
+        texte(s, x, Inches(3.0), w, Inches(0.4), etat, taille=16, couleur=VERT if fait else ORANGE,
+              police=TITRE if fait else CORPS)
+        texte(s, x, Inches(3.45), w, Inches(0.9), titre, taille=40, police=TITRE, couleur=BLEU if fait else ENCRE)
+        texte(s, x, Inches(4.4), w - Inches(0.2), Inches(1.0), detail, taille=20, police=LEGER, couleur=GRIS)
+    notes(s, f"""
+Le sujet ne vise pas les particuliers mais les professionnels : agences, collectivités, analystes.
+On a choisi deux de ses questions métier comme fil rouge (ADR-042) :
+- « Où ouvrir les 10 prochaines franchises de mon entreprise ? » → un scoring multi-critères dont l'utilisateur règle les poids
+  (prix, revenus, population, dynamisme des ventes, risque argiles…) ;
+- « Comment réduire les inégalités dans mon département ? » → des indicateurs d'écart entre communes d'un même département.
+L'application cible a trois pages :
+1. Carte (en place) : prix médian et évolution aujourd'hui, puis chaque nouvel indicateur devient une couche au choix.
+2. Fiche territoire : une commune, un département ou une région, tous ses indicateurs et leur évolution sur une page.
+3. Comparateur et scoring : plusieurs zones côte à côte, classement pondérable pour les franchises, écarts pour les inégalités.
+Le volet texte alimente la carte et les fiches : caractéristiques extraites des annonces (« travaux », « rénovation »)
+et sentiment calculé sur une source d'avis.
+Sur chaque page, comme le demande le sujet : commune, département et région, tableau triable, filtrable et exportable,
+indicateurs croisés.
 """)
 
 
@@ -369,10 +407,10 @@ def capture_recadree(nom="1_france", boite=(230, 60, 1420, 1170)):
     return dst
 
 
-def s07_demo(prs):
+def s08_demo(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 7, "Démo", f"De la France à l'arrondissement en {F['clics_demo']} clics")
+    entete(s, 8, "Démo", f"De la France à l'arrondissement en {F['clics_demo']} clics")
     pic = image(s, capture_recadree(), MARGE, Inches(2.0), Inches(6.2), Inches(4.65))
     texte(s, MARGE, pic.top + pic.height + Inches(0.08), pic.width, Inches(0.25), "Fond de carte © Esri",
           taille=10, couleur=GRIS).name = "chrome attribution"
@@ -400,10 +438,10 @@ Si la démo ne répond pas : captures du parcours dans docs/followup2/captures/.
 """)
 
 
-def s08_evolution(prs):
+def s09_evolution(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 8, "Évolution", f"Paris : {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']}")
+    entete(s, 9, "Évolution", f"Paris : {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']}")
     pic = image(s, capture_recadree("5_evolution_paris"), MARGE, Inches(2.0), Inches(6.2), Inches(4.65))
     texte(s, MARGE, pic.top + pic.height + Inches(0.08), pic.width, Inches(0.25), "Fond de carte © Esri",
           taille=10, couleur=GRIS).name = "chrome attribution"
@@ -437,10 +475,10 @@ Plan B : captures/4_evolution_france_app.png et 5_evolution_paris_app.png.
 """)
 
 
-def s09_controles(prs):
+def s10_controles(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLEU)
-    entete(s, 9, "Qualité", "Bases et application vérifiées automatiquement", sombre=True)
+    entete(s, 10, "Qualité", "Bases et application vérifiées automatiquement", sombre=True)
     for i, (gros, petit) in enumerate([(F["controles_bdd"], "contrôles sur les bases"),
                                         (F["tests_app"], "tests de l'application")]):
         x = MARGE + i * Inches(5.6)
@@ -459,10 +497,10 @@ Les chiffres de ce deck sont eux-mêmes extraits de la base par un script, pas r
 """)
 
 
-def s10_cloud(prs):
+def s11_cloud(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 10, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
+    entete(s, 11, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
     colonnes = [
         ("AUJOURD'HUI", "Spark local", "1 machine", ENCRE),
         ("OVHCLOUD DATA PLATFORM", "Spark distribué", "1 driver + N exécuteurs", BLEU),
@@ -481,7 +519,7 @@ def s10_cloud(prs):
                   align=PP_ALIGN.CENTER)
     trait(s, MARGE, Inches(5.4), L - MARGE, Inches(5.4))
     texte(s, MARGE, Inches(5.6), LARGEUR, Inches(0.5),
-          [[("Mode serverless : ", {"police": TITRE, "couleur": BLEU}), ("facturé à l'exécution", {})]],
+          [[("Priorité : ", {"police": TITRE, "couleur": BLEU}), ("pipelines déployés automatiquement", {})]],
           taille=22, police=LEGER, couleur=ENCRE)
     notes(s, """
 Le sujet impose de répartir le calcul sur un cluster de machines (Hadoop / Spark) : on le fera sur OVHcloud Data Platform.
@@ -495,17 +533,20 @@ Notre job tourne déjà en PySpark : on le porte tel quel, la table d'indicateur
 Coût maîtrisé : facturation à l'usage ; en mode serverless, un job ne consomme que pendant son exécution
 (un notebook allumé ou le mode always-up consomment en continu, on les évite).
 Contrôle prévu : la même vérification qu'aujourd'hui, médiane Spark = recalcul SQL sur toutes les zones.
+C'est la priorité du prochain palier : prendre en main la plateforme et automatiser le déploiement des pipelines
+(ingestion, nettoyage, calcul Spark, contrôles). Ensuite, intégrer une nouvelle source ou un nouveau calcul revient
+à ajouter un job, déployé et contrôlé de la même façon — c'est ce qui rend les paliers suivants rapides.
 """)
 
 
-def s11_feuille_de_route(prs):
+def s12_feuille_de_route(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 11, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
+    entete(s, 12, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
     paliers = [
-        ("23/11 – 13/12", "Socio-éco", "Revenus, DPE, risques"),
-        ("14/12 – 10/01", "Analyse de texte", "Sentiment des annonces"),
-        ("11/01 – 31/01", "Spark sur OVHcloud", f"{F['sources_visees']} sources au total"),
+        ("23/11 – 13/12", "Spark sur OVHcloud", "Pipelines déployés automatiquement"),
+        ("14/12 – 10/01", "Analyse de texte", "Annonces et avis"),
+        ("11/01 – 31/01", "Socio-éco", f"Revenus, DPE, risques · {F['sources_visees']} sources"),
         ("01/02 – 07/02", "Rendu", "Documentation"),
     ]
     y = Inches(3.5)
@@ -522,12 +563,14 @@ def s11_feuille_de_route(prs):
     notes(s, f"""
 Nous sommes au début du premier palier. Chaque palier ajoute une brique sur le socle existant, sans rien
 reconstruire : même clé (code INSEE), mêmes bases, même mécanisme de contrôles PASS/FAIL.
-1. 23/11 – 13/12 : {F['sources_palier1']} sources socio-économiques et risques (revenus INSEE Filosofi, population, DPE ADEME,
-   retrait-gonflement des argiles), affichées comme nouveaux indicateurs sur la carte.
-2. 14/12 – 10/01 : analyse de sentiment sur le texte des annonces (et d'avis si la source est retenue),
-   agrégée par commune ; méthode et modèle documentés comme l'exige le sujet.
-3. 11/01 – 31/01 : job Spark sur OVHcloud Data Platform (slide précédente), {F['sources_restantes']} dernières sources
-   pour atteindre {F['sources_visees']}, page tableau avec indicateurs croisés et export.
+1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide précédente) et déploiement
+   automatisé des pipelines de données : ingestion, nettoyage, calcul, contrôles. C'est l'investissement qui rend
+   les paliers suivants rapides — une nouvelle donnée ou un nouveau calcul devient un job de plus.
+2. 14/12 – 10/01 : analyse de texte. Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
+   sentiment calculé sur une source d'avis, agrégés par commune ; méthode et modèle documentés comme l'exige le sujet.
+3. 11/01 – 31/01 : {F['sources_palier1']} sources socio-économiques et risques (revenus INSEE Filosofi, population, DPE ADEME,
+   retrait-gonflement des argiles) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']}, intégrées par les pipelines du
+   palier 1 ; pages Fiche territoire et Comparateur (slide 7).
 4. 01/02 – 07/02 : gel des fonctionnalités, documentation (schéma, méthodologie de nettoyage, IA), répétition.
 Merci — questions ?
 """)
@@ -536,8 +579,8 @@ Merci — questions ?
 def main():
     prs = Presentation()
     prs.slide_width, prs.slide_height = L, H
-    for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_spark, s07_demo,
-              s08_evolution, s09_controles, s10_cloud, s11_feuille_de_route):
+    for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_spark, s07_application, s08_demo,
+              s09_evolution, s10_controles, s11_cloud, s12_feuille_de_route):
         f(prs)
     prs.save(SORTIE)
     print(f"-> {SORTIE.name} ({len(prs.slides)} slides)")

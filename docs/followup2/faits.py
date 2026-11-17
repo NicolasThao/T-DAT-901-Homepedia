@@ -116,8 +116,8 @@ def faits_controles():
 FAITS_DECLARES = {
     "sources_en_place": 3,           # DVF 2022-2025, geo.api.gouv.fr, annonces Orpi
     "sources_visees": 12,            # sujet v2.1 p.3 : « at least a dozen »
-    "sources_palier1": 4,            # revenus, population, DPE, argiles (feuille de route, d'ici le 13/12)
-    "sources_restantes": 5,          # 12 - 3 en place - 4 du palier 1 (d'ici le 31/01)
+    "sources_palier1": 4,            # socio-éco : revenus, population, DPE, argiles (palier 11/01 – 31/01)
+    "sources_restantes": 5,          # 12 - 3 en place - 4 socio-éco (même palier, d'ici le 31/01)
     "seuil_ventes": 30,              # app/carte.py SEUIL_VENTES
     "annee_debut": DEBUT,
     "annee_fin": FIN,
