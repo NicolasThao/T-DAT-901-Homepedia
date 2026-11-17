@@ -541,52 +541,102 @@ Chacun suit la même chaîne automatisée : ingestion → nettoyage → calcul S
 """)
 
 
-def fiche_pipeline(prs, numero, rubrique_libelle, titre, lignes, contenu_notes):
-    """Fiche d'un pipeline : 4 lignes Objectif / Entrée / Traitement / Dans l'app, séparées par des filets."""
+def fiche_pipeline(prs, numero, rubrique_libelle, titre, lignes, indicateurs, dans_app, contenu_notes):
+    """Fiche d'un pipeline : Objectif / Entrée / Traitement / Indicateurs (grille) / Dans l'app.
+
+    `indicateurs` : liste de (libellé, en_place). Slide marquée « dense » : verif_deck.py y autorise plus de mots
+    (slides de fond, demandé par Nicolas le 2026-11-17)."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
+    s._element.cSld.set("name", "dense")
     fond(s, BLANC)
     entete(s, numero, rubrique_libelle, titre)
-    y0, h = Inches(2.35), Inches(0.98)
-    x_lib, x_val = MARGE, MARGE + Inches(2.9)
+    x_lib, x_val = MARGE, MARGE + Inches(2.1)
+    l_val = L - MARGE - x_val
+    h_ligne, h_item, cols = Inches(0.6), Inches(0.42), 3
+    y = Inches(2.15)
+
+    def filet(y, premier=False):
+        trait(s, MARGE, y, L - MARGE, y, couleur=BLEU if premier else FILET, epaisseur=1.5 if premier else 1.0)
+
+    def ligne_texte(y, libelle, valeur):
+        texte(s, x_lib, y + Inches(0.2), Inches(2.3), Inches(0.3), libelle, taille=14, couleur=ORANGE)
+        texte(s, x_val, y + Inches(0.08), l_val, Inches(0.45), valeur, taille=18, police=LEGER, couleur=ENCRE,
+              ancre=MSO_ANCHOR.MIDDLE)
+
     for i, (libelle, valeur) in enumerate(lignes):
-        y = y0 + i * h
-        trait(s, MARGE, y, L - MARGE, y, couleur=BLEU if i == 0 else FILET, epaisseur=1.5 if i == 0 else 1.0)
-        texte(s, x_lib, y + Inches(0.42), Inches(2.7), Inches(0.4), libelle, taille=16, couleur=ORANGE)
-        texte(s, x_val, y + Inches(0.2), L - MARGE - x_val, Inches(0.7), valeur, taille=26, police=LEGER,
-              couleur=ENCRE, ancre=MSO_ANCHOR.MIDDLE)
-    trait(s, MARGE, y0 + 4 * h, L - MARGE, y0 + 4 * h)
+        filet(y, premier=(i == 0))
+        ligne_texte(y, libelle, valeur)
+        y += h_ligne
+
+    # Indicateurs : grille de 3 colonnes, carré plein = en place, carré vide = à ajouter
+    filet(y)
+    texte(s, x_lib, y + Inches(0.2), Inches(2.3), Inches(0.3), "INDICATEURS", taille=14, couleur=ORANGE)
+    if any(fait for _, fait in indicateurs):
+        for j, (plein, libelle) in enumerate([(True, "en place"), (False, "à ajouter")]):
+            yl = y + Inches(0.6) + j * Inches(0.3)
+            rect(s, x_lib, yl + Inches(0.06), Inches(0.13), Inches(0.13),
+                 remplissage=BLEU if plein else None, contour=None if plein else BLEU, epaisseur=1.0)
+            texte(s, x_lib + Inches(0.25), yl, Inches(2.0), Inches(0.3), libelle, taille=12, couleur=GRIS)
+    w_col = l_val / cols
+    for k, (libelle, fait) in enumerate(indicateurs):
+        rang, col = divmod(k, cols)
+        xi, yi = x_val + col * w_col, y + Inches(0.17) + rang * h_item
+        rect(s, xi, yi + Inches(0.09), Inches(0.14), Inches(0.14),
+             remplissage=BLEU if fait else None, contour=None if fait else BLEU, epaisseur=1.0)
+        texte(s, xi + Inches(0.28), yi, w_col - Inches(0.35), Inches(0.35), libelle, taille=16, police=LEGER,
+              couleur=ENCRE)
+    rangs = -(-len(indicateurs) // cols)
+    y += max(Inches(1.25) if any(f for _, f in indicateurs) else 0, rangs * h_item + Inches(0.3))
+
+    filet(y)
+    ligne_texte(y, "DANS L'APP", dans_app)
+    filet(y + h_ligne)
     notes(s, contenu_notes)
 
 
-ETAPES_PIPELINE = ("OBJECTIF", "ENTRÉE", "TRAITEMENT", "DANS L'APP")
-
-
 def s12_pipeline_prix(prs):
-    fiche_pipeline(prs, 12, "Pipeline prix  ·  23/11 – 13/12", "Pipeline 1 : prix de l'immobilier", list(zip(ETAPES_PIPELINE, [
-        "Prix médian et évolution, chaque zone",
-        "DVF Etalab, référentiel géographique",
-        "Regroupement par vente, filtres, médianes Spark",
-        "Carte choroplèthe, évolution, tableau",
-    ])), f"""
-Premier pipeline porté sur la plateforme : il tourne déjà en local, on l'industrialise.
-- Objectif : le prix médian au m² et son évolution, pour chaque commune, département et région, par type de bien et par année.
-- Entrée : DVF géolocalisées d'Etalab ({PERIODE}, {n(F['dvf_lignes_csv'])} lignes) et le référentiel geo.api.gouv.fr (communes, contours).
-- Traitement : regroupement des lignes par vente ({n(F['dvf_mutations'])} ventes), marquage des ventes douteuses et hors marché,
-  filtre des ventes de marché d'un seul logement (200 à {n(30000)} €/m²), médiane Spark par zone, type et année
-  → {n(F['indicateurs_lignes'])} indicateurs ; contrôle : médiane Spark = recalcul SQL, ligne par ligne.
-- Dans l'app : carte choroplèthe du prix, carte divergente de l'évolution entre deux années, infobulle avec la série,
-  tableau triable et exportable.
-Sur le cloud : DVF est republié deux fois par an (avril, octobre) ; le pipeline recharge l'année et recalcule sans intervention.
+    fiche_pipeline(
+        prs, 12, "Pipeline prix  ·  23/11 – 13/12", "Pipeline 1 : le marché immobilier local",
+        [("OBJECTIF", "Niveau, dynamisme, dispersion et coût d'implantation de chaque marché"),
+         ("ENTRÉE", f"DVF Etalab {PERIODE} (logements, locaux, terrains), référentiel géo"),
+         ("TRAITEMENT", "Regroupement par vente, filtres, agrégats Spark par zone, type et année")],
+        [("Prix au m², évolution", True), ("Volume de ventes", False), ("Quartiles, écart D9/D1", False),
+         ("Prix d'un bien, surface", False), ("Prix du T1 au T5+", False), ("Part neuf / maisons", False),
+         ("Locaux commerciaux au m²", False), ("Terrains à bâtir", False), ("Densité des ventes (GPS)", False)],
+        "Sélecteur d'indicateur, carte de chaleur, tableau croisé exportable",
+        f"""
+Premier pipeline porté sur la plateforme : il tourne déjà en local avec un seul indicateur, le prix médian au m².
+On l'élargit à une dizaine d'indicateurs, tous tirés des données DVF déjà en base : aucune nouvelle source à intégrer.
+- Entrée : DVF géolocalisées d'Etalab ({PERIODE}, {n(F['dvf_lignes_csv'])} lignes → {n(F['dvf_mutations'])} ventes), qui ne contiennent
+  pas que des logements : en {F['annee_fin']}, {n(F['dvf_locaux_fin'])} ventes de locaux commerciaux ou industriels et
+  {n(F['dvf_terrains_fin'])} ventes de terrains sans bâti. Plus le référentiel geo.api.gouv.fr (communes, contours).
+- Traitement : regroupement des lignes par vente, marquage des ventes douteuses et hors marché, puis agrégats Spark
+  par commune, département et région, par type de bien et par année. Chaque indicateur a son contrôle SQL, comme la médiane aujourd'hui.
+Indicateurs, et ce qu'ils apportent :
+- Prix médian au m² et évolution (en place) : le niveau des prix.
+- Volume de ventes et son évolution : le dynamisme du marché, utile pour les franchises.
+- Quartiles et écart entre les 10 % les plus chers et les 10 % les moins chers (D9/D1) : la dispersion des prix
+  à l'intérieur d'une zone, première mesure d'inégalité.
+- Prix médian d'un bien et surface médiane : le budget réel d'un acheteur, pas seulement le prix au m².
+- Prix par taille, du T1 au T5 et plus : le marché des petites surfaces et celui des familles.
+- Part du neuf (VEFA) et part des maisons : construction et type de tissu urbain.
+- Locaux commerciaux au m² : le coût d'implantation, directement utile pour les franchises
+  (demande d'ajouter la surface des locaux au chargement, aujourd'hui seule celle des logements est retenue).
+- Terrains à bâtir : le potentiel de construction.
+- Densité des ventes : presque toutes les ventes ont une position GPS, d'où une carte de chaleur, type de carte cité par le sujet.
+Dans l'app : chaque indicateur devient un choix de la carte, avec le même tableau croisé, triable et exportable.
 """)
 
 
 def s13_pipeline_texte(prs):
-    fiche_pipeline(prs, 13, "Pipeline texte  ·  14/12 – 10/01", "Pipeline 2 : analyse de texte", list(zip(ETAPES_PIPELINE, [
-        "Qualifier les logements et les quartiers",
-        "Annonces Orpi, source d'avis",
-        "Caractéristiques extraites, sentiment, par commune",
-        "Couche carte, fiche territoire",
-    ])), f"""
+    fiche_pipeline(
+        prs, 13, "Pipeline texte  ·  14/12 – 10/01", "Pipeline 2 : analyse de texte",
+        [("OBJECTIF", "Qualifier l'état des logements et la perception des quartiers"),
+         ("ENTRÉE", f"{F['annonces']} annonces Orpi (MongoDB) · une source d'avis d'habitants"),
+         ("TRAITEMENT", "Caractéristiques des annonces, sentiment des avis, agrégés par commune")],
+        [("Annonces à rénover", False), ("Thèmes les plus cités", False), ("Sentiment moyen", False)],
+        "Nouvelles couches de la carte, fiche territoire avec thèmes et extraits",
+        f"""
 Le sujet exige une source textuelle traitée, pas une liste de commentaires (l'exemple des « rats » dans les avis).
 - Objectif : décrire l'état des logements et la perception des quartiers, commune par commune.
 - Entrée : les {F['annonces']} annonces Orpi déjà en base (description en texte libre, dans MongoDB), puis une source d'avis
@@ -597,27 +647,39 @@ Le sujet exige une source textuelle traitée, pas une liste de commentaires (l'e
   2. sentiment calculé sur les avis, avec un modèle de langue français pré-entraîné, choisi et documenté comme le demande le sujet.
   Les descriptions d'annonces ne servent pas au sentiment : c'est du texte publicitaire, positif par construction.
   Résultat par document dans MongoDB, agrégats par commune dans PostgreSQL (même clé INSEE).
-- Dans l'app : couches de la carte (part d'annonces « à rénover », sentiment moyen), et la fiche territoire
-  (thèmes les plus cités, extraits).
+Indicateurs :
+- Part d'annonces à rénover : où se concentrent les logements à remettre en état (lien avec les passoires du DPE).
+- Thèmes les plus cités : ce qui revient dans les annonces et les avis d'une commune.
+- Sentiment moyen : la perception d'un quartier par ses habitants.
+- Dans l'app : couches de la carte, et la fiche territoire (thèmes les plus cités, extraits).
 """)
 
 
 def s14_pipeline_socio(prs):
-    fiche_pipeline(prs, 14, "Pipeline socio-éco  ·  11/01 – 31/01", "Pipeline 3 : socio-éco et risques", list(zip(ETAPES_PIPELINE, [
-        "Franchises et inégalités",
-        f"Revenus, population, DPE, argiles, +{F['sources_restantes']} sources",
-        "Jointure INSEE, écarts, score pondéré",
-        "Comparateur, scoring, couches carte",
-    ])), f"""
+    fiche_pipeline(
+        prs, 14, "Pipeline socio-éco  ·  11/01 – 31/01", "Pipeline 3 : socio-éco et risques",
+        [("OBJECTIF", "Répondre aux deux questions métier : franchises et inégalités"),
+         ("ENTRÉE", f"Revenus, population, DPE, argiles, +{F['sources_restantes']} sources open data · prix du pipeline 1"),
+         ("TRAITEMENT", "Jointure INSEE, écarts entre communes, score multi-critères pondéré")],
+        [("Taux d'effort", False), ("Écart de revenus D9/D1", False), ("Passoires thermiques", False),
+         ("Exposition aux argiles", False), ("Population, chômage", False), ("Score franchises pondéré", False)],
+        "Couches de la carte, comparateur de zones, classement du scoring",
+        f"""
 Le pipeline qui sert directement les deux questions métier (slide 7).
 - Objectif : « Où ouvrir les 10 prochaines franchises ? » et « Comment réduire les inégalités dans mon département ? ».
 - Entrée : {F['sources_palier1']} sources open data (revenus INSEE Filosofi, population INSEE, diagnostics énergétiques ADEME,
   risque retrait-gonflement des argiles Géorisques) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']} : établissements scolaires,
-  gares, chômage localisé, Base Adresse Nationale, source d'avis.
+  gares, chômage localisé, Base Adresse Nationale, source d'avis. Plus les indicateurs de prix du pipeline 1.
 - Traitement : standardisation sur le code INSEE (communes fusionnées comprises), jointure avec les prix,
-  indicateurs par zone (revenu médian, part de logements mal classés au DPE, exposition aux argiles),
-  écarts entre communes d'un même département pour les inégalités, score multi-critères normalisé
-  dont l'utilisateur règle les poids pour les franchises.
+  écarts entre communes d'un même département, score normalisé dont l'utilisateur règle les poids.
+Indicateurs :
+- Taux d'effort : prix médian d'un bien rapporté au revenu médian, en années de revenu. Croise les pipelines 1 et 3.
+- Écart de revenus D9/D1 (Filosofi) : les inégalités de revenus dans la commune.
+- Passoires thermiques : part de logements classés F ou G au DPE.
+- Exposition aux argiles : risque pour le bâti, la question climat du sujet.
+- Population, croissance et chômage : la demande locale.
+- Score franchises : somme pondérée de critères normalisés (population, revenu, dynamisme des ventes, prix des locaux
+  commerciaux…), poids réglés par l'utilisateur.
 - Dans l'app : chaque indicateur devient une couche de la carte ; le comparateur met des zones côte à côte ;
   le scoring classe les zones selon les poids choisis ; tableau croisé, filtrable et exportable aux {F['echelles']} échelles.
 """)

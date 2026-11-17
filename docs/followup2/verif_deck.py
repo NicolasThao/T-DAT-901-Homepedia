@@ -2,7 +2,8 @@
 Follow-up 2 — contrôle PASS/FAIL du deck, sans relecture humaine.
 
 - chaque nombre visible ET dans les notes existe dans faits.json (hors dates et constantes de méthode) ;
-- au plus 30 mots de contenu par slide (navigation exclue : rubrique, pied, index 01-04 ; dates exclues) ;
+- au plus 30 mots de contenu par slide (navigation exclue : rubrique, pied, index 01-04 ; dates exclues),
+  100 pour les slides de fond marquées « dense » (fiches pipelines, demandé par Nicolas le 2026-11-17) ;
 - notes speaker non vides ; aucune forme à coins arrondis ; entre 8 et 15 slides ;
 - aucune forme ne dépasse de la slide.
 
@@ -22,6 +23,7 @@ DECK = ICI / "Homepedia_Follow-up_2.pptx"
 FAITS = json.loads((ICI / "faits.json").read_text(encoding="utf-8"))
 
 MOTS_MAX = 30
+MOTS_MAX_DENSE = 100
 # Nombres légitimes qui ne sont pas des faits de la base : numéros de slide, constantes de méthode
 # (bornes 200-30 000 €/m² du job Spark, horizon de 15 ans cité par le sujet), port de l'app, identifiants.
 CONSTANTES = {200, 30000, 15, 901, 2026, 2027, 8501} | set(range(1, 16))
@@ -62,7 +64,8 @@ def main():
     for i, slide in enumerate(prs.slides, 1):
         note = slide.notes_slide.notes_text_frame.text if slide.has_notes_slide else ""
         mots = len(MOT.findall(DATE.sub(" ", "\n".join(textes(slide, chrome=False)))))
-        controle(mots <= MOTS_MAX, f"slide {i} : {mots} mots de contenu (max {MOTS_MAX})")
+        limite = MOTS_MAX_DENSE if slide.name == "dense" else MOTS_MAX
+        controle(mots <= limite, f"slide {i} : {mots} mots de contenu (max {limite})")
         controle(len(note.strip()) > 80, f"slide {i} : notes speaker présentes ({len(note.strip())} car.)")
         inconnus = [b for t in textes(slide) + [note] for b, v in nombres(t) if v not in valeurs]
         controle(not inconnus, f"slide {i} : nombres traçables dans faits.json" +

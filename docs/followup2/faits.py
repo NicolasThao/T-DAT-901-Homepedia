@@ -40,6 +40,10 @@ def faits_postgres():
                                            FROM mutation_dvf WHERE code_insee IS NULL"""),
             "dvf_ventes_fin": un(c, "SELECT count(*) FROM mutation_dvf WHERE date_mutation >= make_date(%s, 1, 1)",
                                  (FIN,)),
+            "dvf_locaux_fin": un(c, """SELECT count(*) FROM mutation_dvf WHERE type_local LIKE 'Local%%'
+                                       AND date_mutation >= make_date(%s, 1, 1)""", (FIN,)),
+            "dvf_terrains_fin": un(c, """SELECT count(*) FROM mutation_dvf WHERE type_local IS NULL
+                                         AND date_mutation >= make_date(%s, 1, 1)""", (FIN,)),
             "ventes_retenues": un(c, f"SELECT count(*) FROM mutation_dvf WHERE code_insee IS NOT NULL AND {FILTRE_VENTES}"),
             "indicateurs_lignes": un(c, "SELECT count(*) FROM indicateurs_prix"),
             "regions": un(c, "SELECT count(*) FROM region"),
