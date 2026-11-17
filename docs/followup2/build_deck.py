@@ -294,12 +294,12 @@ Le schéma complet est documenté dans docs/schema_bdd.md.
 """)
 
 
-def s05_nettoyage(prs):
+def s06_nettoyage(prs):
     """Chaîne de nettoyage : 3 volumes (lignes -> ventes -> ventes retenues), puis les 4 traitements dans l'ordre."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     s._element.cSld.set("name", "dense")
     fond(s, BLEU)
-    entete(s, 5, "Nettoyage", "Du fichier brut aux prix : rien n'est supprimé", sombre=True)
+    entete(s, 6, "Nettoyage", "Du fichier brut aux prix : rien n'est supprimé", sombre=True)
 
     # 1. Les trois volumes, reliés par ce qui les sépare
     volumes = [(n(F["dvf_lignes_csv"]), f"lignes DVF {PERIODE}"),
@@ -337,6 +337,7 @@ def s05_nettoyage(prs):
               interligne=1.1)
     notes(s, f"""
 Le sujet demande une description précise de la méthode de nettoyage : la voici, de la donnée brute aux prix affichés.
+C'est, pour le domaine prix, le passage de la couche bronze à la couche argent présenté sur la slide précédente.
 Trois volumes : {n(F['dvf_lignes_csv'])} lignes dans les fichiers DVF {PERIODE} → {n(F['dvf_mutations'])} ventes distinctes
 → {n(F['ventes_retenues'])} ventes utilisées pour calculer les prix. Entre les deux derniers, rien n'est supprimé de la base :
 les ventes non retenues restent stockées, simplement exclues du calcul.
@@ -359,10 +360,10 @@ L'app affiche ces limites en clair sous la carte. Méthodologie complète : docs
 """)
 
 
-def s06_application(prs):
+def s07_application(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 6, "Application", "Trois pages pour deux questions métier")
+    entete(s, 7, "Application", "Trois pages pour deux questions métier")
     pages = [
         ("EN PLACE", "Carte", "Prix, évolution, puis autres indicateurs", True),
         ("À VENIR", "Fiche territoire", "Une zone, tous ses chiffres", False),
@@ -401,10 +402,10 @@ def capture_recadree(nom="1_france", boite=(230, 60, 1420, 1170)):
     return dst
 
 
-def s07_demo(prs):
+def s08_demo(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 7, "Démo", f"De la France à l'arrondissement en {F['clics_demo']} clics")
+    entete(s, 8, "Démo", f"De la France à l'arrondissement en {F['clics_demo']} clics")
     pic = image(s, capture_recadree(), MARGE, Inches(2.0), Inches(6.2), Inches(4.65))
     texte(s, MARGE, pic.top + pic.height + Inches(0.08), pic.width, Inches(0.25), "Fond de carte © Esri",
           taille=10, couleur=GRIS).name = "chrome attribution"
@@ -438,10 +439,10 @@ Si la démo ne répond pas : captures du parcours dans docs/followup2/captures/.
 """)
 
 
-def s08_evolution(prs):
+def s09_evolution(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 8, "Évolution", f"Paris : {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']}")
+    entete(s, 9, "Évolution", f"Paris : {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']}")
     pic = image(s, capture_recadree("5_evolution_paris"), MARGE, Inches(2.0), Inches(6.2), Inches(4.65))
     texte(s, MARGE, pic.top + pic.height + Inches(0.08), pic.width, Inches(0.25), "Fond de carte © Esri",
           taille=10, couleur=GRIS).name = "chrome attribution"
@@ -475,10 +476,10 @@ Plan B : captures/4_evolution_france_app.png et 5_evolution_paris_app.png.
 """)
 
 
-def s09_cloud(prs):
+def s10_cloud(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 9, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
+    entete(s, 10, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
     colonnes = [
         ("AUJOURD'HUI", "Spark local", "1 machine", ENCRE),
         ("OVHCLOUD DATA PLATFORM", "Spark distribué", "1 driver + N exécuteurs", BLEU),
@@ -521,7 +522,7 @@ contrôlées, mais se lancent à la main : les automatiser est l'objet de ce pal
 Organisation de l'équipe : un seul projet Data Platform, partagé à 4 (chacun invité comme membre de l'équipe),
 qui porte les données, les pipelines et l'app ; il est facturé au compte qui l'héberge. Chacun peut garder son propre
 projet comme bac à sable (tester un notebook, un job, un modèle) ; le code passe par un dépôt Git commun.
-La slide suivante montre comment les données sont organisées (domaines et couches), puis une fiche par domaine.
+L'organisation en domaines et couches a été présentée en slide 5 ; les slides suivantes donnent une fiche par domaine.
 """)
 
 
@@ -531,11 +532,11 @@ COUCHES = [("BRONZE", "donnée brute, telle que reçue", RGBColor.from_string("B
            ("OR", "indicateurs lus par l'app", RGBColor.from_string("C99A12"))]
 
 
-def s10_architecture(prs):
+def s05_architecture(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     s._element.cSld.set("name", "dense")
     fond(s, BLANC)
-    entete(s, 10, "Architecture des données", "Trois domaines traversent trois couches")
+    entete(s, 5, "Architecture des données", "Trois domaines traversent trois couches")
     x_lib, w_lib, gap = MARGE, Inches(1.9), Inches(0.6)
     w = (LARGEUR - w_lib - 2 * gap) / 3
     xs = [x_lib + w_lib + i * (w + gap) for i in range(3)]
@@ -708,7 +709,7 @@ def s13_domaine_socio(prs):
          ("Exposition aux argiles", False), ("Population, chômage", False), ("Score franchises pondéré", False)],
         "Couches de la carte, comparateur de zones, classement du scoring",
         f"""
-Le domaine qui sert directement les deux questions métier (slide 6).
+Le domaine qui sert directement les deux questions métier (slide 7).
 Ce n'est pas un pipeline unique : chaque source a sa propre ingestion (bronze → argent), avec son format et son
 rythme de mise à jour, puis un calcul commun produit les indicateurs (argent → or). Ajouter une source = ajouter une ingestion.
 - Objectif : « Où ouvrir les 10 prochaines franchises ? » et « Comment réduire les inégalités dans mon département ? ».
@@ -754,16 +755,16 @@ def s14_feuille_de_route(prs):
     notes(s, f"""
 Nous sommes au début du premier palier. Chaque palier ajoute une brique sur le socle existant, sans rien
 reconstruire : même clé (code INSEE), mêmes bases, même mécanisme de contrôles PASS/FAIL.
-1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide 9) et déploiement
+1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide 10) et déploiement
    automatisé des pipelines de données : ingestion, nettoyage, calcul, contrôles. C'est l'investissement qui rend
    les paliers suivants rapides — une nouvelle donnée ou un nouveau calcul devient un job de plus.
-   Organisation en domaines et couches bronze / argent / or (slide 10) ; le domaine prix (slide 11),
+   Organisation en domaines et couches bronze / argent / or (slide 5) ; le domaine prix (slide 11),
    dont la chaîne existe déjà en local, est le premier automatisé.
 2. 14/12 – 10/01 : analyse de texte (domaine texte, slide 12). Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
    sentiment calculé sur une source d'avis, agrégés par commune ; méthode et modèle documentés comme l'exige le sujet.
 3. 11/01 – 31/01 : {F['sources_palier1']} sources socio-économiques et risques (revenus INSEE Filosofi, population, DPE ADEME,
    retrait-gonflement des argiles) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']}, intégrées par les pipelines du
-   palier 1 (domaine socio-éco, slide 13) ; pages Fiche territoire et Comparateur (slide 6).
+   palier 1 (domaine socio-éco, slide 13) ; pages Fiche territoire et Comparateur (slide 7).
 4. 01/02 – 07/02 : gel des fonctionnalités, documentation (schéma, méthodologie de nettoyage, IA), répétition.
 Merci — questions ?
 """)
@@ -772,8 +773,8 @@ Merci — questions ?
 def main():
     prs = Presentation()
     prs.slide_width, prs.slide_height = L, H
-    for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_application, s07_demo,
-              s08_evolution, s09_cloud, s10_architecture, s11_domaine_prix, s12_domaine_texte, s13_domaine_socio,
+    for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_architecture, s06_nettoyage, s07_application,
+              s08_demo, s09_evolution, s10_cloud, s11_domaine_prix, s12_domaine_texte, s13_domaine_socio,
               s14_feuille_de_route):
         f(prs)
     prs.save(SORTIE)
