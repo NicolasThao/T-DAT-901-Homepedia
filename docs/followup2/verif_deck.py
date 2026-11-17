@@ -3,8 +3,8 @@ Follow-up 2 — contrôle PASS/FAIL du deck, sans relecture humaine.
 
 - chaque nombre visible ET dans les notes existe dans faits.json (hors dates et constantes de méthode) ;
 - au plus 30 mots de contenu par slide (navigation exclue : rubrique, pied, index 01-04 ; dates exclues),
-  100 pour les slides de fond marquées « dense » (fiches pipelines, demandé par Nicolas le 2026-11-17) ;
-- notes speaker non vides ; aucune forme à coins arrondis ; entre 8 et 15 slides ;
+  100 pour les slides de fond marquées « dense » (architecture et fiches domaines, demandé par Nicolas le 2026-11-17) ;
+- notes speaker non vides ; aucune forme à coins arrondis ; entre 8 et 16 slides ;
 - aucune forme ne dépasse de la slide.
 
 Usage : docs/followup2/.venv/Scripts/python docs/followup2/verif_deck.py
@@ -26,7 +26,7 @@ MOTS_MAX = 30
 MOTS_MAX_DENSE = 100
 # Nombres légitimes qui ne sont pas des faits de la base : numéros de slide, constantes de méthode
 # (bornes 200-30 000 €/m² du job Spark, horizon de 15 ans cité par le sujet), port de l'app, identifiants.
-CONSTANTES = {200, 30000, 15, 901, 2026, 2027, 8501} | set(range(1, 16))
+CONSTANTES = {200, 30000, 15, 901, 2026, 2027, 8501} | set(range(1, 17))
 MOIS = r"(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)"
 DATE = re.compile(r"\b\d{1,2}/\d{1,2}\b")
 NOMBRE = re.compile(r"\d+(?:[  ]\d{3})*(?:,\d+)?")  # milliers : espace fine insécable, cf. n()
@@ -60,7 +60,7 @@ def main():
     prs = Presentation(DECK)
     # Valeur absolue : une variation « −7,3 % » est lue 7,3 (le signe est typographique, pas dans le nombre)
     valeurs = {abs(float(v)) for v in FAITS.values()} | {float(c) for c in CONSTANTES}
-    controle(8 <= len(prs.slides) <= 15, f"nombre de slides : {len(prs.slides)} (attendu 8-15)")
+    controle(8 <= len(prs.slides) <= 16, f"nombre de slides : {len(prs.slides)} (attendu 8-16)")
     for i, slide in enumerate(prs.slides, 1):
         note = slide.notes_slide.notes_text_frame.text if slide.has_notes_slide else ""
         mots = len(MOT.findall(DATE.sub(" ", "\n".join(textes(slide, chrome=False)))))

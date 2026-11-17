@@ -536,13 +536,73 @@ Contrôle prévu : la même vérification qu'aujourd'hui, médiane Spark = recal
 C'est la priorité du prochain palier : prendre en main la plateforme et automatiser le déploiement des pipelines
 (ingestion, nettoyage, calcul Spark, contrôles). Ensuite, intégrer une nouvelle source ou un nouveau calcul revient
 à ajouter un job, déployé et contrôlé de la même façon — c'est ce qui rend les paliers suivants rapides.
-Les 3 slides suivantes détaillent les pipelines qui tourneront sur la plateforme : prix, texte, socio-éco.
-Chacun suit la même chaîne automatisée : ingestion → nettoyage → calcul Spark → contrôles PASS/FAIL → tables lues par l'app.
+Ce qu'on appelle un pipeline : une chaîne de traitements automatisée, de la source jusqu'à la table lue par l'app
+(ingestion → nettoyage → calcul Spark → contrôles PASS/FAIL), déclenchée sans intervention (planning ou nouvelle
+livraison), rejouable, et qui s'arrête en alerte si un contrôle échoue. Aujourd'hui nos chaînes existent et sont
+contrôlées, mais se lancent à la main : les automatiser est l'objet de ce palier.
+La slide suivante montre comment les données sont organisées (domaines et couches), puis une fiche par domaine.
+""")
+
+
+# Couleurs des couches (repères seulement : petites barres d'en-tête)
+COUCHES = [("BRONZE", "donnée brute, telle que reçue", RGBColor.from_string("B0703C")),
+           ("ARGENT", "nettoyée, standardisée, code INSEE", RGBColor.from_string("8A93A6")),
+           ("OR", "indicateurs lus par l'app", RGBColor.from_string("C99A12"))]
+
+
+def s12_architecture(prs):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    s._element.cSld.set("name", "dense")
+    fond(s, BLANC)
+    entete(s, 12, "Architecture des données", "Trois domaines traversent trois couches")
+    x_lib, w_lib, gap = MARGE, Inches(1.9), Inches(0.6)
+    w = (LARGEUR - w_lib - 2 * gap) / 3
+    xs = [x_lib + w_lib + i * (w + gap) for i in range(3)]
+    y_tete = Inches(2.15)
+    for i, (nom, role, couleur) in enumerate(COUCHES):
+        rect(s, xs[i], y_tete, w, Inches(0.09), remplissage=couleur)
+        texte(s, xs[i], y_tete + Inches(0.2), w, Inches(0.35), nom, taille=20, police=TITRE, couleur=couleur)
+        texte(s, xs[i], y_tete + Inches(0.55), w, Inches(0.3), role, taille=13, couleur=GRIS)
+        if i < 2:
+            texte(s, xs[i] + w, y_tete + Inches(0.15), gap, Inches(0.4), "→", taille=20, police=LEGER,
+                  couleur=ORANGE, align=PP_ALIGN.CENTER)
+    domaines = [
+        ("Prix", ["Fichiers DVF Etalab", "Une ligne par vente, qualité marquée", "Indicateurs par zone, type, année"]),
+        ("Texte", ["Annonces et avis bruts", "Textes rattachés à la commune", "Thèmes et sentiment par commune"]),
+        ("Socio-éco", ["Fichiers INSEE, ADEME, Géorisques", "Standardisés sur le code INSEE", "Taux d'effort, écarts, score"]),
+    ]
+    y, h = Inches(3.15), Inches(0.82)
+    for r, (domaine, cellules) in enumerate(domaines):
+        yr = y + r * h
+        trait(s, MARGE, yr, L - MARGE, yr, couleur=BLEU if r == 0 else FILET, epaisseur=1.5 if r == 0 else 1.0)
+        texte(s, x_lib, yr, w_lib, h, domaine, taille=24, police=TITRE, couleur=ENCRE, ancre=MSO_ANCHOR.MIDDLE)
+        for i, cellule in enumerate(cellules):
+            texte(s, xs[i], yr, w - Inches(0.1), h, cellule, taille=16, police=LEGER, couleur=ENCRE,
+                  ancre=MSO_ANCHOR.MIDDLE)
+    trait(s, MARGE, y + 3 * h, L - MARGE, y + 3 * h)
+    texte(s, MARGE, Inches(6.0), LARGEUR, Inches(0.45),
+          [[("Pipeline : ", {"police": TITRE, "couleur": BLEU}),
+            ("le passage automatisé d'une couche à la suivante, contrôlé à chaque étape", {})]],
+          taille=20, police=LEGER, couleur=ENCRE)
+    notes(s, f"""
+On organise les données en domaines, et chaque domaine traverse les mêmes trois couches (architecture dite « médaillon »).
+- Un domaine regroupe les données qui répondent à un même besoin : le marché immobilier (prix), le texte (annonces, avis),
+  le contexte socio-économique et les risques. Chacun a sa fiche dans les slides suivantes.
+- Bronze : la donnée brute, conservée telle que reçue, avec sa source et sa date d'ingestion. On peut tout recalculer à partir d'elle.
+- Argent : la donnée nettoyée et standardisée. Clé commune = code INSEE de la commune ; lignes douteuses marquées,
+  jamais supprimées ; une ligne par vente pour DVF.
+- Or : les indicateurs prêts à l'emploi, par zone (commune, département, région) et par période. C'est la seule couche que lit l'app.
+- Un pipeline fait passer un domaine d'une couche à la suivante, automatiquement, et s'arrête si un contrôle échoue.
+Aujourd'hui, en local, ces couches existent déjà sans en porter le nom : fichiers téléchargés (bronze),
+tables nettoyées PostgreSQL comme les ventes DVF et les annonces (argent), table d'indicateurs calculée par Spark (or).
+Sur OVHcloud Data Platform, le stockage de chaque couche sera fixé au palier 1 : stockage objet et tables Iceberg,
+ou base PostgreSQL hébergée. Les conventions reprennent celles documentées par notre collègue.
+Intérêt : une nouvelle source n'entre que par sa couche bronze ; le reste de la chaîne et l'app ne changent pas.
 """)
 
 
 def fiche_pipeline(prs, numero, rubrique_libelle, titre, lignes, indicateurs, dans_app, contenu_notes):
-    """Fiche d'un pipeline : Objectif / Entrée / Traitement / Indicateurs (grille) / Dans l'app.
+    """Fiche d'un domaine de données : Objectif / Entrée / Traitement / Indicateurs (grille) / Dans l'app.
 
     `indicateurs` : liste de (libellé, en_place). Slide marquée « dense » : verif_deck.py y autorise plus de mots
     (slides de fond, demandé par Nicolas le 2026-11-17)."""
@@ -572,7 +632,7 @@ def fiche_pipeline(prs, numero, rubrique_libelle, titre, lignes, indicateurs, da
     filet(y)
     texte(s, x_lib, y + Inches(0.2), Inches(2.3), Inches(0.3), "INDICATEURS", taille=14, couleur=ORANGE)
     if any(fait for _, fait in indicateurs):
-        for j, (plein, libelle) in enumerate([(True, "en place"), (False, "à ajouter")]):
+        for j, (plein, libelle) in enumerate([(True, "existe, lancé à la main"), (False, "à ajouter")]):
             yl = y + Inches(0.6) + j * Inches(0.3)
             rect(s, x_lib, yl + Inches(0.06), Inches(0.13), Inches(0.13),
                  remplissage=BLEU if plein else None, contour=None if plein else BLEU, epaisseur=1.0)
@@ -594,9 +654,9 @@ def fiche_pipeline(prs, numero, rubrique_libelle, titre, lignes, indicateurs, da
     notes(s, contenu_notes)
 
 
-def s12_pipeline_prix(prs):
+def s13_domaine_prix(prs):
     fiche_pipeline(
-        prs, 12, "Pipeline prix  ·  23/11 – 13/12", "Pipeline 1 : le marché immobilier local",
+        prs, 13, "Domaine prix  ·  23/11 – 13/12", "Domaine 1 : le marché immobilier local",
         [("OBJECTIF", "Niveau, dynamisme, dispersion et coût d'implantation de chaque marché"),
          ("ENTRÉE", f"DVF Etalab {PERIODE} (logements, locaux, terrains), référentiel géo"),
          ("TRAITEMENT", "Regroupement par vente, filtres, agrégats Spark par zone, type et année")],
@@ -605,7 +665,9 @@ def s12_pipeline_prix(prs):
          ("Locaux commerciaux au m²", False), ("Terrains à bâtir", False), ("Densité des ventes (GPS)", False)],
         "Sélecteur d'indicateur, carte de chaleur, tableau croisé exportable",
         f"""
-Premier pipeline porté sur la plateforme : il tourne déjà en local avec un seul indicateur, le prix médian au m².
+Premier domaine porté sur la plateforme. Aujourd'hui, sa chaîne existe en local mais se lance à la main, script par script
+(téléchargement, chargement, job Spark, contrôles) : elle devient un vrai pipeline, automatisé, au palier 1.
+Elle ne produit qu'un indicateur, le prix médian au m².
 On l'élargit à une dizaine d'indicateurs, tous tirés des données DVF déjà en base : aucune nouvelle source à intégrer.
 - Entrée : DVF géolocalisées d'Etalab ({PERIODE}, {n(F['dvf_lignes_csv'])} lignes → {n(F['dvf_mutations'])} ventes), qui ne contiennent
   pas que des logements : en {F['annee_fin']}, {n(F['dvf_locaux_fin'])} ventes de locaux commerciaux ou industriels et
@@ -628,9 +690,9 @@ Dans l'app : chaque indicateur devient un choix de la carte, avec le même table
 """)
 
 
-def s13_pipeline_texte(prs):
+def s14_domaine_texte(prs):
     fiche_pipeline(
-        prs, 13, "Pipeline texte  ·  14/12 – 10/01", "Pipeline 2 : analyse de texte",
+        prs, 14, "Domaine texte  ·  14/12 – 10/01", "Domaine 2 : analyse de texte",
         [("OBJECTIF", "Qualifier l'état des logements et la perception des quartiers"),
          ("ENTRÉE", f"{F['annonces']} annonces Orpi (MongoDB) · une source d'avis d'habitants"),
          ("TRAITEMENT", "Caractéristiques des annonces, sentiment des avis, agrégés par commune")],
@@ -655,25 +717,27 @@ Indicateurs :
 """)
 
 
-def s14_pipeline_socio(prs):
+def s15_domaine_socio(prs):
     fiche_pipeline(
-        prs, 14, "Pipeline socio-éco  ·  11/01 – 31/01", "Pipeline 3 : socio-éco et risques",
+        prs, 15, "Domaine socio-éco  ·  11/01 – 31/01", "Domaine 3 : socio-éco et risques",
         [("OBJECTIF", "Répondre aux deux questions métier : franchises et inégalités"),
-         ("ENTRÉE", f"Revenus, population, DPE, argiles, +{F['sources_restantes']} sources open data · prix du pipeline 1"),
-         ("TRAITEMENT", "Jointure INSEE, écarts entre communes, score multi-critères pondéré")],
+         ("ENTRÉE", f"Revenus, population, DPE, argiles, +{F['sources_restantes']} sources open data · prix du domaine 1"),
+         ("TRAITEMENT", "Une ingestion par source, jointure INSEE, écarts, score pondéré")],
         [("Taux d'effort", False), ("Écart de revenus D9/D1", False), ("Passoires thermiques", False),
          ("Exposition aux argiles", False), ("Population, chômage", False), ("Score franchises pondéré", False)],
         "Couches de la carte, comparateur de zones, classement du scoring",
         f"""
-Le pipeline qui sert directement les deux questions métier (slide 7).
+Le domaine qui sert directement les deux questions métier (slide 7).
+Ce n'est pas un pipeline unique : chaque source a sa propre ingestion (bronze → argent), avec son format et son
+rythme de mise à jour, puis un calcul commun produit les indicateurs (argent → or). Ajouter une source = ajouter une ingestion.
 - Objectif : « Où ouvrir les 10 prochaines franchises ? » et « Comment réduire les inégalités dans mon département ? ».
 - Entrée : {F['sources_palier1']} sources open data (revenus INSEE Filosofi, population INSEE, diagnostics énergétiques ADEME,
   risque retrait-gonflement des argiles Géorisques) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']} : établissements scolaires,
-  gares, chômage localisé, Base Adresse Nationale, source d'avis. Plus les indicateurs de prix du pipeline 1.
+  gares, chômage localisé, Base Adresse Nationale, source d'avis. Plus les indicateurs de prix du domaine 1.
 - Traitement : standardisation sur le code INSEE (communes fusionnées comprises), jointure avec les prix,
   écarts entre communes d'un même département, score normalisé dont l'utilisateur règle les poids.
 Indicateurs :
-- Taux d'effort : prix médian d'un bien rapporté au revenu médian, en années de revenu. Croise les pipelines 1 et 3.
+- Taux d'effort : prix médian d'un bien rapporté au revenu médian, en années de revenu. Croise les domaines 1 et 3.
 - Écart de revenus D9/D1 (Filosofi) : les inégalités de revenus dans la commune.
 - Passoires thermiques : part de logements classés F ou G au DPE.
 - Exposition aux argiles : risque pour le bâti, la question climat du sujet.
@@ -685,10 +749,10 @@ Indicateurs :
 """)
 
 
-def s15_feuille_de_route(prs):
+def s16_feuille_de_route(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 15, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
+    entete(s, 16, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
     paliers = [
         ("23/11 – 13/12", "Spark sur OVHcloud", "Pipelines déployés automatiquement"),
         ("14/12 – 10/01", "Analyse de texte", "Annonces et avis"),
@@ -712,12 +776,13 @@ reconstruire : même clé (code INSEE), mêmes bases, même mécanisme de contr�
 1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide 11) et déploiement
    automatisé des pipelines de données : ingestion, nettoyage, calcul, contrôles. C'est l'investissement qui rend
    les paliers suivants rapides — une nouvelle donnée ou un nouveau calcul devient un job de plus.
-   Le pipeline prix (slide 12), qui tourne déjà en local, est le premier porté.
-2. 14/12 – 10/01 : analyse de texte (pipeline de la slide 13). Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
+   Organisation en domaines et couches bronze / argent / or (slide 12) ; le domaine prix (slide 13),
+   dont la chaîne existe déjà en local, est le premier automatisé.
+2. 14/12 – 10/01 : analyse de texte (domaine texte, slide 14). Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
    sentiment calculé sur une source d'avis, agrégés par commune ; méthode et modèle documentés comme l'exige le sujet.
 3. 11/01 – 31/01 : {F['sources_palier1']} sources socio-économiques et risques (revenus INSEE Filosofi, population, DPE ADEME,
    retrait-gonflement des argiles) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']}, intégrées par les pipelines du
-   palier 1 (pipeline de la slide 14) ; pages Fiche territoire et Comparateur (slide 7).
+   palier 1 (domaine socio-éco, slide 15) ; pages Fiche territoire et Comparateur (slide 7).
 4. 01/02 – 07/02 : gel des fonctionnalités, documentation (schéma, méthodologie de nettoyage, IA), répétition.
 Merci — questions ?
 """)
@@ -727,8 +792,9 @@ def main():
     prs = Presentation()
     prs.slide_width, prs.slide_height = L, H
     for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_spark, s07_application, s08_demo,
-              s09_evolution, s10_controles, s11_cloud, s12_pipeline_prix, s13_pipeline_texte, s14_pipeline_socio,
-              s15_feuille_de_route):
+              s09_evolution, s10_controles, s11_cloud, s12_architecture, s13_domaine_prix, s14_domaine_texte,
+              s15_domaine_socio,
+              s16_feuille_de_route):
         f(prs)
     prs.save(SORTIE)
     print(f"-> {SORTIE.name} ({len(prs.slides)} slides)")
