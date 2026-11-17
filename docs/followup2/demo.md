@@ -15,7 +15,7 @@ Chiffres de ce déroulé : `faits.json` (extraits de la base par `faits.py`, jam
 | 7 | Vérifier la connexion internet | le fond de carte (Esri) vient d'internet ; sans réseau, les zones colorées s'affichent quand même sur fond gris |
 | 8 | Ouvrir le deck, onglet app prêt à côté (Alt+Tab) | — |
 
-## 2. Le parcours (slide 8, ~2 min)
+## 2. Le parcours (slide 7, ~2 min)
 
 | Clic | Écran | Phrase |
 |---|---|---|
@@ -26,7 +26,7 @@ Chiffres de ce déroulé : `faits.json` (extraits de la base par `faits.py`, jam
 | — | Tableau à droite, tri sur le prix, « Exporter en CSV » | « Le tableau reprend exactement les chiffres de la carte, il se trie et s'exporte. » |
 | — | Zone grisée (dans un département rural) + légende sous la carte | « Moins de 30 ventes : on n'affiche pas de prix plutôt qu'un chiffre non significatif. Les limites de la donnée sont écrites sous la carte. » |
 | 4 | Bouton « Évolution » (De 2022 À 2025, par défaut) | « Quatre années de ventes chargées : la variation du prix médian, bleu = baisse, rouge = hausse. Sans couleur : moins de 30 ventes une des deux années. » |
-| — | Bouton « France » | retour, Alt+Tab vers le deck, slide 9 (évolution) |
+| — | Bouton « France » | retour, Alt+Tab vers le deck, slide 8 (évolution) |
 
 ## 3. Plan B
 

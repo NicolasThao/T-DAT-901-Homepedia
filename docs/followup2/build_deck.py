@@ -330,45 +330,10 @@ L'app affiche ces limites en clair sous la carte. Méthodologie complète : docs
 """)
 
 
-def s06_spark(prs):
+def s06_application(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 6, "Big data", "Spark calcule les prix médians, SQL les vérifie")
-    y, w = Inches(2.6), Inches(3.25)
-    gap = (LARGEUR - 3 * w) / 2
-    etapes = [(n(F["ventes_retenues"]), "ventes retenues", ENCRE), ("Spark", "médiane par zone", BLEU),
-              (n(F["indicateurs_lignes"]), "indicateurs stockés", ENCRE)]
-    for i, (gros, petit, couleur) in enumerate(etapes):
-        x = MARGE + i * (w + gap)
-        texte(s, x, y, w, Inches(1.2), gros, taille=60, police=TITRE, couleur=couleur)
-        texte(s, x, y + Inches(1.2), w, Inches(0.5), petit, taille=19, police=LEGER, couleur=GRIS)
-        if i < 2:
-            texte(s, x + w, y + Inches(0.15), gap, Inches(1), "→", taille=40, police=LEGER, couleur=ORANGE,
-                  align=PP_ALIGN.CENTER)
-    trait(s, MARGE, Inches(4.75), L - MARGE, Inches(4.75))
-    texte(s, MARGE, Inches(4.95), Inches(2.2), Inches(1.4), str(F["ecarts_spark_sql"]), taille=96, police=TITRE,
-          couleur=BLEU)
-    texte(s, MARGE + Inches(1.3), Inches(5.35), Inches(9), Inches(0.9),
-          ["écart avec le recalcul SQL,", "zone par zone"],
-          taille=22, police=LEGER, couleur=ENCRE)
-    notes(s, f"""
-Le job Spark (jobs/indicateurs_prix.py) lit les ventes dans PostgreSQL et ne garde que les ventes de marché
-d'un seul logement (maison ou appartement, prix entre 200 et {n(30000)} €/m²) : {n(F['ventes_retenues'])} ventes
-sur {PERIODE}.
-Les autres ne sont pas perdues : elles restent en base, marquées (ventes de plusieurs logements, locaux d'activité, hors marché).
-Il calcule la médiane du prix au m² pour chaque commune, département et région, par type de bien et par année.
-Résultat : {n(F['indicateurs_lignes'])} indicateurs écrits en base, avec leur source et leur date de calcul.
-Pourquoi la médiane : une vente aberrante ne la déplace pas, contrairement à la moyenne.
-Vérification : un contrôle recalcule en SQL la médiane de TOUTES les zones et compare avec Spark :
-{F['ecarts_spark_sql']} écart. Relancer le job redonne la même table (idempotence vérifiée).
-Aujourd'hui Spark tourne en local sur une machine ; il passera sur OVHcloud Data Platform (slide 11).
-""")
-
-
-def s07_application(prs):
-    s = prs.slides.add_slide(prs.slide_layouts[6])
-    fond(s, BLANC)
-    entete(s, 7, "Application", "Trois pages pour deux questions métier")
+    entete(s, 6, "Application", "Trois pages pour deux questions métier")
     pages = [
         ("EN PLACE", "Carte", "Prix, évolution, puis autres indicateurs", True),
         ("À VENIR", "Fiche territoire", "Une zone, tous ses chiffres", False),
@@ -407,10 +372,10 @@ def capture_recadree(nom="1_france", boite=(230, 60, 1420, 1170)):
     return dst
 
 
-def s08_demo(prs):
+def s07_demo(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 8, "Démo", f"De la France à l'arrondissement en {F['clics_demo']} clics")
+    entete(s, 7, "Démo", f"De la France à l'arrondissement en {F['clics_demo']} clics")
     pic = image(s, capture_recadree(), MARGE, Inches(2.0), Inches(6.2), Inches(4.65))
     texte(s, MARGE, pic.top + pic.height + Inches(0.08), pic.width, Inches(0.25), "Fond de carte © Esri",
           taille=10, couleur=GRIS).name = "chrome attribution"
@@ -435,13 +400,19 @@ def s08_demo(prs):
 5. Zones grisées : moins de {F['seuil_ventes']} ventes — on préfère ne rien afficher qu'un prix non significatif.
 6. Bouton « Évolution » : on enchaîne sur la slide suivante.
 Si la démo ne répond pas : captures du parcours dans docs/followup2/captures/.
+À dire à l'oral pendant la démo (pas de slide dédiée) :
+- Les prix affichés sont calculés par Spark : {n(F['ventes_retenues'])} ventes de marché d'un seul logement → {n(F['indicateurs_lignes'])} indicateurs
+  (médianes par commune, département, région, type de bien et année). Pourquoi la médiane : une vente aberrante ne la déplace pas.
+- Chaque médiane Spark est recalculée en SQL : {F['ecarts_spark_sql']} écart sur toutes les zones.
+- Une commande rejoue {F['controles_bdd']} contrôles sur les bases (aucune ligne perdue, repères connus, cohérence PostgreSQL ↔ MongoDB)
+  et {F['tests_app']} tests vérifient l'application ; les chiffres de ce deck sont extraits de la base par un script.
 """)
 
 
-def s09_evolution(prs):
+def s08_evolution(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 9, "Évolution", f"Paris : {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']}")
+    entete(s, 8, "Évolution", f"Paris : {pct(F['variation_paris_pct'])} entre {F['annee_debut']} et {F['annee_fin']}")
     pic = image(s, capture_recadree("5_evolution_paris"), MARGE, Inches(2.0), Inches(6.2), Inches(4.65))
     texte(s, MARGE, pic.top + pic.height + Inches(0.08), pic.width, Inches(0.25), "Fond de carte © Esri",
           taille=10, couleur=GRIS).name = "chrome attribution"
@@ -475,32 +446,10 @@ Plan B : captures/4_evolution_france_app.png et 5_evolution_paris_app.png.
 """)
 
 
-def s10_controles(prs):
-    s = prs.slides.add_slide(prs.slide_layouts[6])
-    fond(s, BLEU)
-    entete(s, 10, "Qualité", "Bases et application vérifiées automatiquement", sombre=True)
-    for i, (gros, petit) in enumerate([(F["controles_bdd"], "contrôles sur les bases"),
-                                        (F["tests_app"], "tests de l'application")]):
-        x = MARGE + i * Inches(5.6)
-        texte(s, x, Inches(2.7), Inches(5), Inches(1.8), str(gros), taille=120, police=TITRE, couleur=BLANC)
-        soulignement(s, x, Inches(4.75))
-        texte(s, x, Inches(4.95), Inches(5), Inches(0.5),
-              [[(petit, {}), ("   PASS", {"couleur": VERT, "police": TITRE})]], taille=22, police=LEGER, couleur=BLANC)
-    notes(s, f"""
-Une commande, db/check.py, rejoue {F['controles_bdd']} contrôles et rend PASS ou FAIL :
-pour chacune des {F['annees_dvf']} années DVF : ventes attendues et aucune ligne perdue ; contours géographiques valides,
-repères connus (la Tour Eiffel tombe bien dans le 7e arrondissement), cohérence PostgreSQL ↔ MongoDB,
-absence de données personnelles d'agence, et médianes Spark = recalcul SQL.
-Les {F['tests_app']} tests de l'application vérifient qu'elle démarre et affiche la carte aux {F['echelles']} échelles,
-en prix et en évolution, qu'un clic tombe sur la bonne zone et que les couleurs de variation suivent la légende.
-Les chiffres de ce deck sont eux-mêmes extraits de la base par un script, pas recopiés à la main.
-""")
-
-
-def s11_cloud(prs):
+def s09_cloud(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 11, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
+    entete(s, 9, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
     colonnes = [
         ("AUJOURD'HUI", "Spark local", "1 machine", ENCRE),
         ("OVHCLOUD DATA PLATFORM", "Spark distribué", "1 driver + N exécuteurs", BLEU),
@@ -550,11 +499,11 @@ COUCHES = [("BRONZE", "donnée brute, telle que reçue", RGBColor.from_string("B
            ("OR", "indicateurs lus par l'app", RGBColor.from_string("C99A12"))]
 
 
-def s12_architecture(prs):
+def s10_architecture(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     s._element.cSld.set("name", "dense")
     fond(s, BLANC)
-    entete(s, 12, "Architecture des données", "Trois domaines traversent trois couches")
+    entete(s, 10, "Architecture des données", "Trois domaines traversent trois couches")
     x_lib, w_lib, gap = MARGE, Inches(1.9), Inches(0.6)
     w = (LARGEUR - w_lib - 2 * gap) / 3
     xs = [x_lib + w_lib + i * (w + gap) for i in range(3)]
@@ -654,9 +603,9 @@ def fiche_pipeline(prs, numero, rubrique_libelle, titre, lignes, indicateurs, da
     notes(s, contenu_notes)
 
 
-def s13_domaine_prix(prs):
+def s11_domaine_prix(prs):
     fiche_pipeline(
-        prs, 13, "Domaine prix  ·  23/11 – 13/12", "Domaine 1 : le marché immobilier local",
+        prs, 11, "Domaine prix  ·  23/11 – 13/12", "Domaine 1 : le marché immobilier local",
         [("OBJECTIF", "Niveau, dynamisme, dispersion et coût d'implantation de chaque marché"),
          ("ENTRÉE", f"DVF Etalab {PERIODE} (logements, locaux, terrains), référentiel géo"),
          ("TRAITEMENT", "Regroupement par vente, filtres, agrégats Spark par zone, type et année")],
@@ -690,9 +639,9 @@ Dans l'app : chaque indicateur devient un choix de la carte, avec le même table
 """)
 
 
-def s14_domaine_texte(prs):
+def s12_domaine_texte(prs):
     fiche_pipeline(
-        prs, 14, "Domaine texte  ·  14/12 – 10/01", "Domaine 2 : analyse de texte",
+        prs, 12, "Domaine texte  ·  14/12 – 10/01", "Domaine 2 : analyse de texte",
         [("OBJECTIF", "Qualifier l'état des logements et la perception des quartiers"),
          ("ENTRÉE", f"{F['annonces']} annonces Orpi (MongoDB) · une source d'avis d'habitants"),
          ("TRAITEMENT", "Caractéristiques des annonces, sentiment des avis, agrégés par commune")],
@@ -717,9 +666,9 @@ Indicateurs :
 """)
 
 
-def s15_domaine_socio(prs):
+def s13_domaine_socio(prs):
     fiche_pipeline(
-        prs, 15, "Domaine socio-éco  ·  11/01 – 31/01", "Domaine 3 : socio-éco et risques",
+        prs, 13, "Domaine socio-éco  ·  11/01 – 31/01", "Domaine 3 : socio-éco et risques",
         [("OBJECTIF", "Répondre aux deux questions métier : franchises et inégalités"),
          ("ENTRÉE", f"Revenus, population, DPE, argiles, +{F['sources_restantes']} sources open data · prix du domaine 1"),
          ("TRAITEMENT", "Une ingestion par source, jointure INSEE, écarts, score pondéré")],
@@ -727,7 +676,7 @@ def s15_domaine_socio(prs):
          ("Exposition aux argiles", False), ("Population, chômage", False), ("Score franchises pondéré", False)],
         "Couches de la carte, comparateur de zones, classement du scoring",
         f"""
-Le domaine qui sert directement les deux questions métier (slide 7).
+Le domaine qui sert directement les deux questions métier (slide 6).
 Ce n'est pas un pipeline unique : chaque source a sa propre ingestion (bronze → argent), avec son format et son
 rythme de mise à jour, puis un calcul commun produit les indicateurs (argent → or). Ajouter une source = ajouter une ingestion.
 - Objectif : « Où ouvrir les 10 prochaines franchises ? » et « Comment réduire les inégalités dans mon département ? ».
@@ -749,10 +698,10 @@ Indicateurs :
 """)
 
 
-def s16_feuille_de_route(prs):
+def s14_feuille_de_route(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 16, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
+    entete(s, 14, "Feuille de route", "Quatre paliers jusqu'au rendu du 7 février")
     paliers = [
         ("23/11 – 13/12", "Spark sur OVHcloud", "Pipelines déployés automatiquement"),
         ("14/12 – 10/01", "Analyse de texte", "Annonces et avis"),
@@ -773,16 +722,16 @@ def s16_feuille_de_route(prs):
     notes(s, f"""
 Nous sommes au début du premier palier. Chaque palier ajoute une brique sur le socle existant, sans rien
 reconstruire : même clé (code INSEE), mêmes bases, même mécanisme de contrôles PASS/FAIL.
-1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide 11) et déploiement
+1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide 9) et déploiement
    automatisé des pipelines de données : ingestion, nettoyage, calcul, contrôles. C'est l'investissement qui rend
    les paliers suivants rapides — une nouvelle donnée ou un nouveau calcul devient un job de plus.
-   Organisation en domaines et couches bronze / argent / or (slide 12) ; le domaine prix (slide 13),
+   Organisation en domaines et couches bronze / argent / or (slide 10) ; le domaine prix (slide 11),
    dont la chaîne existe déjà en local, est le premier automatisé.
-2. 14/12 – 10/01 : analyse de texte (domaine texte, slide 14). Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
+2. 14/12 – 10/01 : analyse de texte (domaine texte, slide 12). Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
    sentiment calculé sur une source d'avis, agrégés par commune ; méthode et modèle documentés comme l'exige le sujet.
 3. 11/01 – 31/01 : {F['sources_palier1']} sources socio-économiques et risques (revenus INSEE Filosofi, population, DPE ADEME,
    retrait-gonflement des argiles) et {F['sources_restantes']} autres pour atteindre {F['sources_visees']}, intégrées par les pipelines du
-   palier 1 (domaine socio-éco, slide 15) ; pages Fiche territoire et Comparateur (slide 7).
+   palier 1 (domaine socio-éco, slide 13) ; pages Fiche territoire et Comparateur (slide 6).
 4. 01/02 – 07/02 : gel des fonctionnalités, documentation (schéma, méthodologie de nettoyage, IA), répétition.
 Merci — questions ?
 """)
@@ -791,10 +740,9 @@ Merci — questions ?
 def main():
     prs = Presentation()
     prs.slide_width, prs.slide_height = L, H
-    for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_spark, s07_application, s08_demo,
-              s09_evolution, s10_controles, s11_cloud, s12_architecture, s13_domaine_prix, s14_domaine_texte,
-              s15_domaine_socio,
-              s16_feuille_de_route):
+    for f in (s01_titre, s02_etapes, s03_sources, s04_bases, s05_nettoyage, s06_application, s07_demo,
+              s08_evolution, s09_cloud, s10_architecture, s11_domaine_prix, s12_domaine_texte, s13_domaine_socio,
+              s14_feuille_de_route):
         f(prs)
     prs.save(SORTIE)
     print(f"-> {SORTIE.name} ({len(prs.slides)} slides)")
