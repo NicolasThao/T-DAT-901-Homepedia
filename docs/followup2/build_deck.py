@@ -295,37 +295,66 @@ Le schéma complet est documenté dans docs/schema_bdd.md.
 
 
 def s05_nettoyage(prs):
+    """Chaîne de nettoyage : 3 volumes (lignes -> ventes -> ventes retenues), puis les 4 traitements dans l'ordre."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
+    s._element.cSld.set("name", "dense")
     fond(s, BLEU)
-    entete(s, 5, "Nettoyage", "Lignes regroupées par vente, aucune perdue", sombre=True)
-    y = Inches(3.0)
-    texte(s, MARGE, y, Inches(5.0), Inches(1.4), n(F["dvf_lignes_csv"]), taille=72, police=TITRE, couleur=BLANC)
-    texte(s, MARGE, y + Inches(1.45), Inches(5.0), Inches(0.5), f"lignes DVF {PERIODE}", taille=20,
-          police=LEGER, couleur=BLANC)
-    texte(s, MARGE + Inches(4.9), y - Inches(0.25), Inches(1.9), Inches(0.4), "regroupées", taille=18,
-          police=CORPS, couleur=VERT, align=PP_ALIGN.CENTER)
-    texte(s, MARGE + Inches(4.9), y + Inches(0.05), Inches(1.9), Inches(1.3), "→", taille=72, police=LEGER,
-          couleur=VERT, align=PP_ALIGN.CENTER)
-    texte(s, MARGE + Inches(6.8), y, Inches(5.0), Inches(1.4), n(F["dvf_mutations"]), taille=72, police=TITRE,
-          couleur=BLANC)
-    texte(s, MARGE + Inches(6.8), y + Inches(1.45), Inches(5.0), Inches(0.5), "ventes distinctes", taille=20,
-          police=LEGER, couleur=BLANC)
-    soulignement(s, MARGE, Inches(5.65))
-    texte(s, MARGE, Inches(5.85), Inches(11), Inches(0.5), "Ventes douteuses marquées, jamais supprimées.",
-          taille=20, police=CORPS, couleur=BLANC)
+    entete(s, 5, "Nettoyage", "Du fichier brut aux prix : rien n'est supprimé", sombre=True)
+
+    # 1. Les trois volumes, reliés par ce qui les sépare
+    volumes = [(n(F["dvf_lignes_csv"]), f"lignes DVF {PERIODE}"),
+               (n(F["dvf_mutations"]), "ventes distinctes"),
+               (n(F["ventes_retenues"]), "ventes utilisées pour les prix")]
+    passages = ["regroupées", "filtrées"]
+    w, y = Inches(3.0), Inches(2.25)
+    gap = (LARGEUR - 3 * w) / 2
+    for i, (gros, petit) in enumerate(volumes):
+        x = MARGE + i * (w + gap)
+        texte(s, x, y, w, Inches(0.9), gros, taille=48, police=TITRE, couleur=BLANC)
+        texte(s, x, y + Inches(0.9), w, Inches(0.4), petit, taille=16, police=LEGER, couleur=BLANC)
+        if i < 2:
+            texte(s, x + w, y - Inches(0.05), gap, Inches(0.35), passages[i], taille=14, couleur=VERT,
+                  align=PP_ALIGN.CENTER)
+            texte(s, x + w, y + Inches(0.2), gap, Inches(0.6), "→", taille=36, police=LEGER, couleur=VERT,
+                  align=PP_ALIGN.CENTER)
+
+    # 2. Les quatre traitements, dans l'ordre où ils s'appliquent
+    etapes = [
+        ("Regrouper", "Une vente répétée sur plusieurs lignes devient une seule ligne, son prix compté une fois"),
+        ("Standardiser", "Code INSEE (commune du logement), dates au format ISO, position GPS"),
+        ("Marquer", f"{n(F['dvf_hors_marche'])} ventes hors marché, {n(F['dvf_douteuses'])} prix au m² douteux"),
+        ("Filtrer", "Vente de marché d'une maison ou d'un appartement, entre 200 et 30 000 €/m²"),
+    ]
+    y2 = Inches(4.05)
+    trait(s, MARGE, y2, L - MARGE, y2, couleur=BLEU_CLAIR, epaisseur=1.0)
+    g2 = Inches(0.35)
+    w2 = (LARGEUR - 3 * g2) / 4
+    for i, (verbe, detail) in enumerate(etapes):
+        x = MARGE + i * (w2 + g2)
+        texte(s, x, y2 + Inches(0.25), w2, Inches(0.45),
+              [[(f"{i + 1}  ", {"couleur": ORANGE}), (verbe, {})]], taille=24, police=TITRE, couleur=BLANC)
+        texte(s, x, y2 + Inches(0.8), w2, Inches(1.5), detail, taille=15, police=LEGER, couleur=BLANC,
+              interligne=1.1)
     notes(s, f"""
-DVF a une ligne par lot, par parcelle et par nature de culture : une même vente apparaît sur plusieurs lignes,
-avec le prix total répété. Compter les lignes revient à compter plusieurs fois la même vente.
-On regroupe donc les lignes par vente (identifiant de mutation d'Etalab), sur les {F['annees_dvf']} années {PERIODE} :
-{n(F['dvf_lignes_csv'])} lignes → {n(F['dvf_mutations'])} ventes, dont {n(F['dvf_ventes_fin'])} en {F['annee_fin']}.
-Ce n'est pas une perte : un contrôle automatique vérifie, année par année, que la somme des lignes sources
-de chaque vente redonne exactement le total du fichier.
-Un logement répété sur plusieurs natures de culture (sol, jardin…) n'est compté qu'une fois.
-Standardisation : codes INSEE sur 5 caractères, dates ISO, arrondissements de Paris/Lyon/Marseille.
-Rien n'est supprimé, tout est marqué :
-- {n(F['dvf_douteuses'])} ventes avec un prix au m² douteux (plusieurs logements à des adresses différentes) ;
-- {n(F['dvf_hors_marche'])} ventes hors marché (échanges, adjudications, expropriations) ;
-- {F['dvf_codes_inconnus']} codes de communes absents du référentiel actuel, conservés et comptés.
+Le sujet demande une description précise de la méthode de nettoyage : la voici, de la donnée brute aux prix affichés.
+Trois volumes : {n(F['dvf_lignes_csv'])} lignes dans les fichiers DVF {PERIODE} → {n(F['dvf_mutations'])} ventes distinctes
+→ {n(F['ventes_retenues'])} ventes utilisées pour calculer les prix. Entre les deux derniers, rien n'est supprimé de la base :
+les ventes non retenues restent stockées, simplement exclues du calcul.
+1. Regrouper. DVF a une ligne par lot, par parcelle et par nature de culture : une même vente apparaît sur plusieurs
+   lignes, avec le prix total répété. Compter les lignes compterait plusieurs fois la même vente. On regroupe par
+   identifiant de vente (fourni par Etalab). Un logement répété sur plusieurs natures de culture (sol, jardin…)
+   n'est compté qu'une fois. Contrôle automatique, année par année : la somme des lignes regroupées redonne
+   exactement le total du fichier.
+2. Standardiser. Chaque vente est rattachée à sa commune par le code INSEE sur 5 caractères (la clé commune à
+   toutes nos sources) ; si une vente porte sur plusieurs communes, on prend celle du logement. Dates au format ISO,
+   arrondissements de Paris, Lyon et Marseille, position GPS de la vente. {F['dvf_codes_inconnus']} codes de communes
+   absents du référentiel actuel sont conservés et comptés, pas jetés.
+3. Marquer, jamais supprimer. {n(F['dvf_hors_marche'])} ventes hors marché (échanges, adjudications, expropriations :
+   leur prix n'est pas un prix de marché) et {n(F['dvf_douteuses'])} ventes au prix au m² douteux (plusieurs logements
+   à des adresses différentes vendus en un seul prix). Chaque marque est une colonne de la base : on peut toujours
+   revenir en arrière.
+4. Filtrer pour le calcul des prix. On ne garde que les ventes de marché d'un seul logement (maison ou appartement),
+   avec un prix entre 200 et {n(30000)} €/m² (garde-fou contre les erreurs de saisie).
 L'app affiche ces limites en clair sous la carte. Méthodologie complète : docs/schema_bdd.md.
 """)
 
@@ -489,6 +518,9 @@ Ce qu'on appelle un pipeline : une chaîne de traitements automatisée, de la so
 (ingestion → nettoyage → calcul Spark → contrôles PASS/FAIL), déclenchée sans intervention (planning ou nouvelle
 livraison), rejouable, et qui s'arrête en alerte si un contrôle échoue. Aujourd'hui nos chaînes existent et sont
 contrôlées, mais se lancent à la main : les automatiser est l'objet de ce palier.
+Organisation de l'équipe : un seul projet Data Platform, partagé à 4 (chacun invité comme membre de l'équipe),
+qui porte les données, les pipelines et l'app ; il est facturé au compte qui l'héberge. Chacun peut garder son propre
+projet comme bac à sable (tester un notebook, un job, un modèle) ; le code passe par un dépôt Git commun.
 La slide suivante montre comment les données sont organisées (domaines et couches), puis une fiche par domaine.
 """)
 
