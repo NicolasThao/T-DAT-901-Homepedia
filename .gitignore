@@ -31,6 +31,8 @@ Thumbs.db
 
 # Cache des téléchargements (regénérable)
 db/data/
+# Lac local du pipeline prix (copie des couches du bucket OVHcloud)
+data/lac/
 
 # Driver JDBC Postgres (téléchargé par jobs/indicateurs_prix.py)
 jobs/lib/

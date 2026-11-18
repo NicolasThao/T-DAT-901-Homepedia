@@ -74,6 +74,16 @@ CREATE TABLE IF NOT EXISTS indicateurs_prix (
     _date_ingestion  timestamptz NOT NULL,
     PRIMARY KEY (niveau_geo, code_geo, type_local, periode)
 );
+-- Indicateurs du marché (2026-11-18, pipeline prix OVHcloud) : dispersion, valeur et surface médianes, lot.
+-- NULL tant que le job qui écrit la table ne les calcule pas. _source : dvf (Spark local), dvf-ovhcloud
+-- (calculé sur OVHcloud Data Platform, chargé par db/ovh.py recuperer), dvf-lac-local (même chaîne, lac local).
+ALTER TABLE indicateurs_prix ADD COLUMN IF NOT EXISTS prix_m2_d1 double precision;
+ALTER TABLE indicateurs_prix ADD COLUMN IF NOT EXISTS prix_m2_q1 double precision;
+ALTER TABLE indicateurs_prix ADD COLUMN IF NOT EXISTS prix_m2_q3 double precision;
+ALTER TABLE indicateurs_prix ADD COLUMN IF NOT EXISTS prix_m2_d9 double precision;
+ALTER TABLE indicateurs_prix ADD COLUMN IF NOT EXISTS valeur_mediane double precision;
+ALTER TABLE indicateurs_prix ADD COLUMN IF NOT EXISTS surface_mediane double precision;
+ALTER TABLE indicateurs_prix ADD COLUMN IF NOT EXISTS _batch_id text;
 
 -- ---------------------------------------------------------------------------
 -- Transactions DVF (une ligne par mutation, après dédoublonnage des lots)

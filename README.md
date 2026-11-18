@@ -8,6 +8,7 @@ Analyse du marché immobilier français (Epitech). Ce dépôt contient :
 | `scraping/orpi/` | Collecte de 500 annonces de vente Orpi |
 | `db/` | Bases PostgreSQL/PostGIS + MongoDB (Docker), chargements et contrôles |
 | `jobs/` | Jobs Spark de l'app : prix au m² médian par commune, département, région |
+| `pipelines/` | Pipelines Spark déployés sur OVHcloud Data Platform (bronze → argent → or), cf. [`docs/deploiement_ovh.md`](docs/deploiement_ovh.md) |
 | `app/` | Application Streamlit : carte des prix (région → département → commune) |
 | `docs/` | Fiches explicatives (PySpark, scraping, technos BDD) et schéma de la base |
 
@@ -151,13 +152,17 @@ Bases démarrées et job Spark lancé (section 3), puis :
 
 ```powershell
 .venv\Scripts\streamlit run app\main.py      # s'ouvre sur http://localhost:8501
-.venv\Scripts\python -m pytest app\test_app.py   # tests de l'app, attendu : 33 passed
+.venv\Scripts\python -m pytest app\test_app.py   # tests de l'app, attendu : 34 passed
 ```
 
 Page Carte, deux indicateurs :
 
 - **Prix au m²** : France colorée par prix au m² médian (DVF) d'une année (2022 à 2025). Zones grisées : moins de 30 ventes.
 - **Évolution** : variation du prix médian entre deux années choisies (bleu = baisse, rouge = hausse, gris = stable à ±2 %). Zones sans couleur, contour pointillé : moins de 30 ventes l'une des deux années. L'infobulle donne le prix de chaque année.
+
+Le tableau du mode Prix ajoute, quand ils sont calculés, les quartiles, l'écart D9/D1, le prix médian d'un bien et la surface médiane. Sous la carte : la provenance des indicateurs (Spark local ou OVHcloud Data Platform, avec le lot).
+
+Indicateurs calculés sur OVHcloud : `db/ovh.py envoyer`, workflow `pipeline-prix`, puis `db/ovh.py recuperer` ([`docs/deploiement_ovh.md`](docs/deploiement_ovh.md)).
 
 Choix Tous / Appartement / Maison, clic sur une région puis un département pour descendre jusqu'aux communes (arrondissements à Paris, Lyon, Marseille). Le tableau à droite reprend les chiffres de la carte et s'exporte en CSV.
 

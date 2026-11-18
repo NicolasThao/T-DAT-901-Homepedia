@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "db"))
 from config import postgres  # noqa: E402
 
 TYPES_BIEN = ("Tous", "Appartement", "Maison")
+INDICATEURS_MARCHE = ("prix_m2_q1", "prix_m2_q3", "prix_m2_d1", "prix_m2_d9", "valeur_mediane", "surface_mediane")
 
 # Zones affichées à chaque échelle. Paris, Lyon, Marseille : on affiche les arrondissements
 # (DVF est codé par arrondissement) et pas la commune parente qui les recouvre.
@@ -35,10 +36,12 @@ def zones(niveau, parent, type_local, periode):
     """Zones d'une échelle (enfants de `parent`, ou toute la France pour les régions), avec leur indicateur.
 
     Renvoie une liste de dicts : code, nom, geometrie (GeoJSON), prix_m2_median, nb_ventes
-    (None / 0 si aucune vente retenue dans la zone).
+    (None / 0 si aucune vente retenue dans la zone), et les indicateurs du marché (None s'ils ne sont
+    pas calculés) : prix_m2_q1, prix_m2_q3, prix_m2_d1, prix_m2_d9, valeur_mediane, surface_mediane.
     """
     sql = f"""
-        SELECT z.code, z.nom, z.geom, i.prix_m2_median, coalesce(i.nb_ventes, 0)
+        SELECT z.code, z.nom, z.geom, i.prix_m2_median, coalesce(i.nb_ventes, 0),
+               i.prix_m2_q1, i.prix_m2_q3, i.prix_m2_d1, i.prix_m2_d9, i.valeur_mediane, i.surface_mediane
         FROM ({ZONES[niveau]}) AS z(code, nom, geom)
         LEFT JOIN indicateurs_prix i ON i.niveau_geo = %(niveau)s AND i.code_geo = z.code
              AND i.type_local = %(type_local)s AND i.periode = %(periode)s
@@ -46,10 +49,17 @@ def zones(niveau, parent, type_local, periode):
     params = {"parent": parent, "niveau": niveau, "type_local": type_local, "periode": periode}
     with postgres() as conn:
         return [
-            {"code": code, "nom": nom, "geometrie": json.loads(geom),
-             "prix_m2_median": prix, "nb_ventes": nb}
-            for code, nom, geom, prix, nb in conn.execute(sql, params)
+            {"code": code, "nom": nom, "geometrie": json.loads(geom), "prix_m2_median": prix, "nb_ventes": nb,
+             **dict(zip(INDICATEURS_MARCHE, kpi))}
+            for code, nom, geom, prix, nb, *kpi in conn.execute(sql, params)
         ]
+
+
+def provenance():
+    """D'où viennent les indicateurs affichés : [(source, lot, date de calcul)] (un élément en pratique)."""
+    with postgres() as conn:
+        return conn.execute("""SELECT _source, _batch_id, max(_date_ingestion) FROM indicateurs_prix
+                               GROUP BY 1, 2 ORDER BY 3 DESC""").fetchall()
 
 
 def zones_series(niveau, parent, type_local):

@@ -272,11 +272,13 @@ def check_contours(cur):
     controle("carte des départements < 1 Mo de GeoJSON", mo < 1, f"{mo:.2f} Mo")
 
 
-# Recalcul indépendant (SQL pur) des indicateurs écrits par le job Spark jobs/indicateurs_prix.py
+# Recalcul indépendant (SQL pur) des indicateurs écrits par Spark (jobs/indicateurs_prix.py en local,
+# pipelines/prix/ sur OVHcloud, chargés par db/ovh.py) : médiane, déciles, quartiles, valeur et surface médianes
 INDICATEURS_SQL = """
 WITH v AS (
     SELECT m.code_insee, c.code_departement, d.code_region,
-           extract(year FROM m.date_mutation)::int AS periode, t.type_local, m.prix_m2::float8 AS prix_m2
+           extract(year FROM m.date_mutation)::int AS periode, t.type_local, m.prix_m2::float8 AS prix_m2,
+           m.valeur_fonciere::float8 AS valeur, m.surface_bati_m2::float8 AS surface
     FROM mutation_dvf m
     JOIN commune c ON c.code_insee = m.code_insee
     JOIN departement d ON d.code_departement = c.code_departement
@@ -285,13 +287,22 @@ WITH v AS (
       AND m.type_local IN ('Maison', 'Appartement') AND m.prix_m2 BETWEEN 200 AND 30000
 )
 SELECT 'commune', code_insee, type_local, periode,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2), count(*) FROM v GROUP BY 2, 3, 4
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2), count(*),
+       percentile_cont(ARRAY[0.1, 0.25, 0.75, 0.9]) WITHIN GROUP (ORDER BY prix_m2),
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY valeur), percentile_cont(0.5) WITHIN GROUP (ORDER BY surface)
+FROM v GROUP BY 2, 3, 4
 UNION ALL
 SELECT 'departement', code_departement, type_local, periode,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2), count(*) FROM v GROUP BY 2, 3, 4
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2), count(*),
+       percentile_cont(ARRAY[0.1, 0.25, 0.75, 0.9]) WITHIN GROUP (ORDER BY prix_m2),
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY valeur), percentile_cont(0.5) WITHIN GROUP (ORDER BY surface)
+FROM v GROUP BY 2, 3, 4
 UNION ALL
 SELECT 'region', code_region, type_local, periode,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2), count(*) FROM v GROUP BY 2, 3, 4
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY prix_m2), count(*),
+       percentile_cont(ARRAY[0.1, 0.25, 0.75, 0.9]) WITHIN GROUP (ORDER BY prix_m2),
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY valeur), percentile_cont(0.5) WITHIN GROUP (ORDER BY surface)
+FROM v GROUP BY 2, 3, 4
 """
 
 
@@ -299,16 +310,29 @@ def check_indicateurs(cur):
     lignes = cur.execute("SELECT count(*) FROM indicateurs_prix").fetchone()[0]
     controle("indicateurs_prix rempli par le job Spark", lignes > 0, f"{lignes} lignes")
 
+    # Un seul passage du recalcul SQL (le plus long contrôle) pour tous les indicateurs
     ecarts = cur.execute(f"""
         SELECT count(*) FILTER (WHERE i.code_geo IS NULL)  AS absents_spark,
                count(*) FILTER (WHERE s.code_geo IS NULL)  AS en_trop_spark,
                count(*) FILTER (WHERE i.nb_ventes <> s.nb)  AS comptes_differents,
-               count(*) FILTER (WHERE abs(i.prix_m2_median - s.med) > 0.01) AS medianes_differentes
-        FROM ({INDICATEURS_SQL}) AS s(niveau_geo, code_geo, type_local, periode, med, nb)
+               count(*) FILTER (WHERE abs(i.prix_m2_median - s.med) > 0.01) AS medianes_differentes,
+               count(*) FILTER (WHERE i.code_geo IS NOT NULL AND (i.prix_m2_d1 IS NULL OR i.prix_m2_q1 IS NULL
+                                OR i.prix_m2_q3 IS NULL OR i.prix_m2_d9 IS NULL
+                                OR i.valeur_mediane IS NULL OR i.surface_mediane IS NULL)) AS kpi_manquants,
+               count(*) FILTER (WHERE abs(i.prix_m2_d1 - s.p[1]) > 0.01 OR abs(i.prix_m2_q1 - s.p[2]) > 0.01
+                                   OR abs(i.prix_m2_q3 - s.p[3]) > 0.01 OR abs(i.prix_m2_d9 - s.p[4]) > 0.01
+                                   OR abs(i.valeur_mediane - s.val) > 0.01 OR abs(i.surface_mediane - s.surf) > 0.01)
+                   AS kpi_differents
+        FROM ({INDICATEURS_SQL}) AS s(niveau_geo, code_geo, type_local, periode, med, nb, p, val, surf)
         FULL JOIN indicateurs_prix i USING (niveau_geo, code_geo, type_local, periode)""").fetchone()
     controle("indicateurs Spark = recalcul SQL (toutes zones, médianes à 0,01 € près)",
-             ecarts == (0, 0, 0, 0),
-             "absents {}, en trop {}, comptes différents {}, médianes différentes {}".format(*ecarts))
+             ecarts[:4] == (0, 0, 0, 0),
+             "absents {}, en trop {}, comptes différents {}, médianes différentes {}".format(*ecarts[:4]))
+    controle("déciles, quartiles, valeur et surface médianes = recalcul SQL (toutes zones)",
+             ecarts[4:] == (0, 0), "manquants {}, différents {}".format(*ecarts[4:]))
+    source = cur.execute("SELECT string_agg(DISTINCT _source || ' / lot ' || coalesce(_batch_id, '?'), ', ') "
+                         "FROM indicateurs_prix").fetchone()[0]
+    print(f"       (provenance des indicateurs : {source})")
 
     # Chaque vente compte une fois par niveau : même total de ventes aux 3 échelles
     totaux = dict(cur.execute("""SELECT niveau_geo, sum(nb_ventes) FROM indicateurs_prix
@@ -317,8 +341,9 @@ def check_indicateurs(cur):
              len(set(totaux.values())) == 1, str(totaux))
 
     paris6 = cur.execute("""SELECT prix_m2_median FROM indicateurs_prix WHERE niveau_geo = 'commune'
-                            AND code_geo = '75106' AND type_local = 'Appartement'""").fetchone()
-    controle("repère : médiane appartements Paris 6e entre 10 000 et 20 000 €/m²",
+                            AND code_geo = '75106' AND type_local = 'Appartement'
+                            ORDER BY periode DESC LIMIT 1""").fetchone()
+    controle("repère : médiane appartements Paris 6e (dernière année) entre 10 000 et 20 000 €/m²",
              paris6 is not None and 10_000 <= paris6[0] <= 20_000, f"{paris6[0] if paris6 else None:.0f} €/m²")
 
 

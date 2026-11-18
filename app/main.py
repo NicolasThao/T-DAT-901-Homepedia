@@ -27,6 +27,9 @@ zones_cache = st.cache_data(ttl=3600, show_spinner="Chargement de la carte…")(
 series_cache = st.cache_data(ttl=3600, show_spinner="Chargement de la carte…")(donnees.zones_series)
 nom_cache = st.cache_data(ttl=3600)(donnees.nom_zone)
 non_localisees_cache = st.cache_data(ttl=3600)(donnees.ventes_non_localisees)
+provenance_cache = st.cache_data(ttl=3600)(donnees.provenance)
+LIBELLE_SOURCE = {"dvf-ovhcloud": "calculés sur OVHcloud Data Platform", "dvf-lac-local": "calculés par le pipeline en local",
+                  "dvf": "calculés par Spark en local"}
 
 # --- Navigation : France (régions) -> une région (départements) -> un département (communes)
 st.session_state.setdefault("region", None)
@@ -124,14 +127,22 @@ with col_carte:
 # --- Tableau (mêmes données que la carte), triable et exportable
 with col_table:
     if indicateur == PRIX:
+        def si_assez(z, cle, f=round):
+            return f(z[cle]) if z["nb_ventes"] >= SEUIL_VENTES and z.get(cle) is not None else None
         tableau = pd.DataFrame({
             "Zone": [z["nom"] for z in zones],
             "Code": [z["code"] for z in zones],
-            "Prix médian (€/m²)": [round(z["prix_m2_median"]) if z["nb_ventes"] >= SEUIL_VENTES else None
-                                   for z in zones],
+            "Prix médian (€/m²)": [si_assez(z, "prix_m2_median") for z in zones],
             "Ventes retenues": [z["nb_ventes"] for z in zones],
+            "Q1 (€/m²)": [si_assez(z, "prix_m2_q1") for z in zones],
+            "Q3 (€/m²)": [si_assez(z, "prix_m2_q3") for z in zones],
+            "Écart D9/D1": [round(z["prix_m2_d9"] / z["prix_m2_d1"], 1) if si_assez(z, "prix_m2_d1") else None
+                            for z in zones],
+            "Prix médian d'un bien (€)": [si_assez(z, "valeur_mediane", lambda v: round(v, -3)) for z in zones],
+            "Surface médiane (m²)": [si_assez(z, "surface_mediane") for z in zones],
             "Statut": ["" if z["nb_ventes"] >= SEUIL_VENTES else libelle_prix(z) for z in zones],
         }).sort_values("Prix médian (€/m²)", ascending=False, na_position="last")
+        tableau = tableau.dropna(axis="columns", how="all")
         nom_fichier = f"prix_m2_{niveau}_{parent or 'france'}_{type_local}_{periode}.csv"
     else:
         variations = [variation(z) for z in zones]
@@ -161,3 +172,8 @@ st.caption(
     f"d'un seul logement, prix entre 200 et 30 000 €/m², médiane calculée par Spark. {zones_vides} "
     f"Absents de DVF : Bas-Rhin, Haut-Rhin, Moselle (Livre foncier), Mayotte. "
     f"{euros(non_localisees)} ventes de communes absentes du référentiel ne sont pas localisées.")
+provenances = provenance_cache()
+if provenances:
+    source, lot, date = provenances[0]
+    st.caption(f"Indicateurs {LIBELLE_SOURCE.get(source, source)}"
+               + (f", lot {lot}" if lot else "") + (f", le {date.astimezone():%d/%m/%Y à %H:%M}" if date else "") + ".")

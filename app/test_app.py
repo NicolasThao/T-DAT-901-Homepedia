@@ -57,6 +57,20 @@ def test_page_carte_a_chaque_echelle(region, departement, attendu_min):
     assert tableau["Prix médian (€/m²)"].notna().any()
 
 
+
+def test_indicateurs_du_marche_et_provenance():
+    """Paris : quartiles, écart D9/D1, prix d'un bien, surface ; sous la carte, d'où viennent les chiffres."""
+    app = AppTest.from_file(MAIN, default_timeout=120)
+    app.session_state["region"], app.session_state["departement"] = "11", "75"
+    app.run()
+    assert not app.exception, app.exception
+    tableau = app.dataframe[0].value.dropna(subset=["Prix médian (€/m²)"])
+    assert (tableau["Q1 (€/m²)"] <= tableau["Prix médian (€/m²)"]).all()
+    assert (tableau["Prix médian (€/m²)"] <= tableau["Q3 (€/m²)"]).all()
+    assert (tableau["Écart D9/D1"] > 1).all()
+    assert tableau["Prix médian d'un bien (€)"].notna().all() and tableau["Surface médiane (m²)"].notna().all()
+    assert any(c.value.startswith("Indicateurs calculés") for c in app.caption)
+
 def test_legende_couvre_les_prix():
     zones = [zone(str(i), 1000 + 100 * i, 100) for i in range(30)]
     _, _, legende = construire_carte(zones)
