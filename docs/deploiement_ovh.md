@@ -1,8 +1,10 @@
 # Déploiement du pipeline prix sur OVHcloud Data Platform
 
 > Pour qui : l'équipe. Ce document dit quoi créer sur OVHcloud (une fois), dans quel ordre lancer le pipeline,
-> et comment déployer une modification. Doc officielle lue le 2026-11-18 ; chaque point cite sa page
-> (préfixe `https://docs.ovhcloud.com/en/guides/public-cloud/data-platform/`).
+> et comment déployer une modification. Doc officielle lue le 2026-11-18 ; chaque point cite sa page, au même nom
+> sur `https://docs.dataplatform.ovh.net/<page>` et `https://docs.ovhcloud.com/en/guides/public-cloud/data-platform/<page>`.
+> Le site docs.dataplatform.ovh.net est plus complet (API de lancement, export/import de configuration) :
+> tout y est dans `https://docs.dataplatform.ovh.net/llms-full.txt`.
 
 ## 1. Vue d'ensemble
 
@@ -39,7 +41,7 @@
 | R4 | Source Connectors « Buckets » | Connectors → Platform store → *Buckets* → **Select** | Bucket `homepedia`, Path vide, **nom technique `homepedia`** (non modifiable ensuite) | `connectors-sources-dataplatform-buckets.md` |
 | R5 | Dépôt d'actions relié à GitHub | Data Processing Engine → Actions → roue dentée du dépôt → **Connect to Git** | URL SSH `git@github.com:NicolasThao/T-DAT-901-Homepedia.git` → **FETCH** → branche `master` → copier la clé SSH publique affichée et l'ajouter côté GitHub | `tutorials-versioning-basics.md` |
 | R6 | 3 actions **Custom PySpark** | Actions → **New Action** → *Custom PySpark* | une action par fichier de `pipelines/prix/` (tableau ci-dessous) | `dpe-actions-custom-pyspark.md` |
-| R7 | Workflow PySpark | Data Processing Engine → Workflows | `pipeline-prix` : étape 1 → 2 → 3, **Auto Flushall désactivé** | `dpe-workflows.md` |
+| R7 | Workflow PySpark | Data Processing Engine → Workflows | `pipeline-prix` : étape 1 → 2 → 3, **Auto Flushall désactivé**, **Stop workflow on failure activé** (sinon l'or serait recalculé sur un argent périmé si l'étape 1 échoue) ; trigger CRON optionnel dans les préférences | `dpe-workflows.md`, `dpe-jobs-preferences.md` |
 
 Actions (R6). Le code est un seul fichier par action, sans import local (« no multi-file package structure
 inside a single action », `dpe-actions-manage.md`) ; le point d'entrée est `customfunc(event)`.
@@ -50,8 +52,10 @@ inside a single action », `dpe-actions-manage.md`) ; le point d'entrée est `cu
 | `prix-argent-or` | `pipelines/prix/argent_vers_or.py` | 2 × 2 DPU, driver 2 DPU | argent → or (~275 000 indicateurs) |
 | `prix-controles` | `pipelines/prix/controles.py` | 1 × 2 DPU, driver 2 DPU | contrôles → or/controles |
 
-Rien à paramétrer si R2 et R4 s'appellent `homepedia`. Sinon, variables d'environnement des actions :
-`HOMEPEDIA_SOURCE` (nom technique de R4), `HOMEPEDIA_BUCKET` (nom de R2).
+Rien à paramétrer si R2 et R4 s'appellent `homepedia`. Sinon, variables d'environnement des actions (lues dans
+`PARAMS` du SDK, `dpe-jobs-preferences.md`) : `HOMEPEDIA_SOURCE` (nom technique de R4), `HOMEPEDIA_BUCKET` (nom de R2).
+Chaque job s'exécute sous le **compte de service** associé à l'action ou au workflow (`dpe-jobs-preferences.md`,
+« Service account ») : ce compte doit avoir accès au bucket.
 
 Sur le poste, ajouter à `db/.env` (jamais versionné) :
 
@@ -75,9 +79,11 @@ CLI `ovhcloud` (`getting-started-ovhcloudshell.md`, section *cross-functional*).
 |---|---|---|
 | R1 projet Public Cloud (identifiant) | oui, lecture | `ovhcloud cloud project list` |
 | R2 bucket, dépôt du bronze, lecture des couches | **oui** | le datastore est compatible S3 : AWS CLI avec `--endpoint-url` (`tutorials-bucket-s3-access.md` cite `s3 mb`, `s3 cp`, `s3 ls`) |
-| R3 compte de service, clés API | non | IAM de Data Platform : pas de commande ni d'API de création documentée (l'API publique ne couvre que `/iam/login` et `/iam/logout`) |
-| R4 source, R5 dépôt Git, R6 actions, R7 workflow | non | « The complete Data Platform API is in development » ; actions modifiables seulement via Git + pull (`landing-page-developers-apis.md`, `dpe-actions-manage.md`) |
-| Lancer le workflow | non (pour l'instant) | la doc dit « API call » possible, mais ne publie pas l'endpoint (`dpe-workflows.md`) |
+| R3 compte de service, clés API | non | création dans l'IAM (console) ; les clés servent ensuite à obtenir un jeton : `POST /iam/login` (`auth_mode: apikey`) |
+| R4 source | non | pas d'API de création documentée ; export/import possible côté Connectors (`/dwh/v4/configuration/...`) |
+| R6 actions, R7 workflow | **oui, après la 1re création** | `GET /dpe/v3/configuration/export` puis `POST .../import` : la configuration devient une archive rejouable dans un autre projet (bac à sable d'un collègue, ADR-045) ; `tutorials-export-import-config.md` |
+| Lancer une action | **oui** | `POST /dpe/v3/actions/<id>/start?...&token=` (« Launching Actions and Workflows ») |
+| Lancer le workflow | à vérifier | même forme en `/dpe/v3/workflows/<id>/start` : **déduit**, la doc annonce le lancement de workflows mais ne montre que l'URL des actions |
 
 Le CLI `ovhcloud` gère l'Object Storage *Public Cloud* (`ovhcloud cloud storage-s3`), qui n'est **pas** le
 datastore de Data Platform : on ne l'utilise pas ici.
@@ -115,6 +121,18 @@ done
 # 5. État du lac par couche, et rapport de contrôles du dernier lot (après le workflow)
 dp s3 ls --recursive s3://homepedia/ | awk '{print $3, $4}'
 dp s3 cp "s3://homepedia/$(dp s3 ls --recursive s3://homepedia/or/controles/ | awk '/part-.*\.csv$/ {print $4}')" - | column -s, -t
+```
+
+Pilotage de Data Platform par API (`ovh/dp.sh`, testé contre un faux serveur : chemins, en-têtes et corps conformes
+aux exemples de la doc ; à confirmer sur le vrai projet) :
+
+```bash
+git clone https://github.com/NicolasThao/T-DAT-901-Homepedia.git && cd T-DAT-901-Homepedia   # dépôt privé : jeton GitHub
+export DP_URL="https://<sous-domaine-du-projet>.eu.dataplatform.ovh.net"
+source ovh/dp.sh                         # demande clé et secret R3, garde le jeton en mémoire
+dp_exporter ovh/dpe-config.tar           # sauvegarde actions + workflow après leur création (R6, R7)
+dp_lancer_workflow <id_workflow>         # id dans l'URL : .../dpe/#/workflow/<id> ; à défaut, une action à la fois :
+dp_lancer_action <id_prix-bronze-argent> # .../dpe/#/action/<id>
 ```
 
 Le référentiel des communes (`bronze/referentiel/communes.csv`) vient de la base locale : il reste envoyé par
@@ -163,11 +181,11 @@ de notebook ouvert ni d'action en mode *always-up* : ils consomment le voucher m
 
 ## 4. Déployer une modification (procédure d'automatisation)
 
-Ce que dit la doc (2026-11-18) : il n'existe pas d'API publique pour créer ou modifier une action ; « changing an
-action means a commit into the linked Git repository, followed by a pull from the platform » (`dpe-actions-manage.md`).
-Le dépôt d'actions a une version **déployée** (celle qu'exécutent les jobs) et une version **en édition** ; on
-déploie une version avec **Play** (`tutorials-versioning-basics.md`). Un workflow se lance à la main, par appel
-d'API ou par CRON (`dpe-workflows.md`).
+Ce que dit la doc (2026-11-18) : pas d'API CRUD par action ; « changing an action means a commit into the linked Git
+repository, followed by a pull from the platform » (`dpe-actions-manage.md`). Le dépôt d'actions a une version
+**déployée** (celle qu'exécutent les jobs) et une version **en édition** ; on déploie une version avec **Play**
+(`tutorials-versioning-basics.md`). En revanche, toute la configuration DPE (actions, workflows, environnements)
+s'exporte et s'importe par API (`tutorials-export-import-config.md`), et un job se lance par API, par CRON ou à la main.
 
 Procédure :
 
@@ -183,8 +201,13 @@ Procédure :
 Ajouter une source ou un indicateur = ajouter un fichier d'étape (ou une colonne à l'or), une action et une
 étape du workflow ; `db/ovh.py`, la base et l'app ne changent pas tant que la table or garde ses colonnes.
 
-Seule étape manuelle restante : le pull + Play (2 clics), faute d'API. Prochaine étape d'automatisation :
-une CI GitHub Actions qui rejoue le test local (section 5) à chaque pull request.
+Scripté par `ovh/dp.sh` : sauvegarde de la configuration (`dp_exporter`, archive versionnée dans `ovh/`), recréation
+dans un autre projet (`dp_importer`), lancement (`dp_lancer_workflow`). Reste manuel : le pull + Play du code (2 clics).
+
+Prochaine étape d'automatisation : une CI GitHub Actions qui rejoue le test local (section 5) à chaque pull request,
+puis, après merge, lance le workflow avec `dp.sh` (clé et secret R3 en secrets GitHub). Pour supprimer aussi le
+pull + Play : regarder l'arborescence de l'archive exportée ; si le code des actions y figure en clair, la CI pourra
+y recopier `pipelines/prix/*.py` et la réimporter (à vérifier sur le premier export).
 
 ## 5. Tester en local (sans OVHcloud)
 

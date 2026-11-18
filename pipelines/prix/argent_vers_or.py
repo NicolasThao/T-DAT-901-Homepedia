@@ -32,26 +32,39 @@ COLONNES = ["niveau_geo", "code_geo", "type_local", "periode", "prix_m2_median",
 
 
 # --- Accès au lac (bloc identique dans chaque étape : une action OVH ne peut pas importer un autre fichier) ---
+def parametre(nom, defaut=None):
+    """Variable de l'action : sur OVH, dictionnaire PARAMS du SDK (variables d'environnement de l'action ou du
+    workflow), sinon os.environ (local, conteneur)."""
+    try:
+        from forepaas.core.settings import PARAMS
+        if PARAMS.get(nom) not in (None, ""):
+            return str(PARAMS[nom])
+    except ImportError:
+        pass
+    return os.environ.get(nom, defaut)
+
+
 def contexte(nom):
     """(spark, url) ; url("bronze/dvf/2022.csv.gz") donne l'adresse du fichier dans le lac.
 
+    Paramètres lus par parametre() :
     - HOMEPEDIA_URL_LAC défini (ex. s3a://homepedia) : adresse directe, session Spark existante ;
     - SDK OVHcloud présent (forepaas) : source Buckets HOMEPEDIA_SOURCE (défaut « homepedia ») ;
     - sinon, local : dossier HOMEPEDIA_LAC (défaut data/lac à la racine du dépôt).
     """
     from pyspark.sql import SparkSession
-    base = os.environ.get("HOMEPEDIA_URL_LAC")
+    base = parametre("HOMEPEDIA_URL_LAC")
     if base:
         return SparkSession.builder.appName(nom).getOrCreate(), lambda chemin: f"{base.rstrip('/')}/{chemin}"
     try:
         from forepaas.dwh import connect
     except ImportError:
         from pathlib import Path
-        racine = Path(os.environ.get("HOMEPEDIA_LAC", Path(__file__).resolve().parents[2] / "data" / "lac"))
+        racine = Path(parametre("HOMEPEDIA_LAC", Path(__file__).resolve().parents[2] / "data" / "lac"))
         spark = SparkSession.builder.appName(nom).master("local[*]").getOrCreate()
         return spark, lambda chemin: str(racine / chemin)
-    cn = connect(f"dwh/{os.environ.get('HOMEPEDIA_SOURCE', 'homepedia')}/")
-    bucket = os.environ.get("HOMEPEDIA_BUCKET", "homepedia")
+    cn = connect(f"dwh/{parametre('HOMEPEDIA_SOURCE', 'homepedia')}/")
+    bucket = parametre("HOMEPEDIA_BUCKET", "homepedia")
 
     def url(chemin):
         dossier, _, fichier = chemin.rpartition("/")

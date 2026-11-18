@@ -24,38 +24,55 @@ from datetime import datetime, timezone
 from pyspark.sql import functions as F
 
 ETAPE = "bronze_vers_argent"
-ANNEES = [int(a) for a in os.environ.get("HOMEPEDIA_ANNEES", "2022,2023,2024,2025").split(",")]
+ANNEES_DEFAUT = "2022,2023,2024,2025"  # HOMEPEDIA_ANNEES : à régler sur les 3 actions à la fois
 SOURCE = "dvf-geolocalisees-etalab"
 MARCHE = ["Vente", "Vente en l'état futur d'achèvement"]
 LOGEMENT = ["Maison", "Appartement"]
 
 
 # --- Accès au lac (bloc identique dans chaque étape : une action OVH ne peut pas importer un autre fichier) ---
+def parametre(nom, defaut=None):
+    """Variable de l'action : sur OVH, dictionnaire PARAMS du SDK (variables d'environnement de l'action ou du
+    workflow), sinon os.environ (local, conteneur)."""
+    try:
+        from forepaas.core.settings import PARAMS
+        if PARAMS.get(nom) not in (None, ""):
+            return str(PARAMS[nom])
+    except ImportError:
+        pass
+    return os.environ.get(nom, defaut)
+
+
 def contexte(nom):
     """(spark, url) ; url("bronze/dvf/2022.csv.gz") donne l'adresse du fichier dans le lac.
 
+    Paramètres lus par parametre() :
     - HOMEPEDIA_URL_LAC défini (ex. s3a://homepedia) : adresse directe, session Spark existante ;
     - SDK OVHcloud présent (forepaas) : source Buckets HOMEPEDIA_SOURCE (défaut « homepedia ») ;
     - sinon, local : dossier HOMEPEDIA_LAC (défaut data/lac à la racine du dépôt).
     """
     from pyspark.sql import SparkSession
-    base = os.environ.get("HOMEPEDIA_URL_LAC")
+    base = parametre("HOMEPEDIA_URL_LAC")
     if base:
         return SparkSession.builder.appName(nom).getOrCreate(), lambda chemin: f"{base.rstrip('/')}/{chemin}"
     try:
         from forepaas.dwh import connect
     except ImportError:
         from pathlib import Path
-        racine = Path(os.environ.get("HOMEPEDIA_LAC", Path(__file__).resolve().parents[2] / "data" / "lac"))
+        racine = Path(parametre("HOMEPEDIA_LAC", Path(__file__).resolve().parents[2] / "data" / "lac"))
         spark = SparkSession.builder.appName(nom).master("local[*]").getOrCreate()
         return spark, lambda chemin: str(racine / chemin)
-    cn = connect(f"dwh/{os.environ.get('HOMEPEDIA_SOURCE', 'homepedia')}/")
-    bucket = os.environ.get("HOMEPEDIA_BUCKET", "homepedia")
+    cn = connect(f"dwh/{parametre('HOMEPEDIA_SOURCE', 'homepedia')}/")
+    bucket = parametre("HOMEPEDIA_BUCKET", "homepedia")
 
     def url(chemin):
         dossier, _, fichier = chemin.rpartition("/")
         return cn.get_spark_url(dossier, fichier, bucket=bucket)
     return cn.get_spark_session(), url
+
+
+def annees():
+    return [int(a) for a in parametre("HOMEPEDIA_ANNEES", ANNEES_DEFAUT).split(",")]
 
 
 def journal(message):
@@ -66,7 +83,7 @@ def journal(message):
 def lire_bronze(spark, url):
     """Lignes brutes des fichiers Etalab : tout en texte, champ vide = NULL (comme le COPY de load_dvf)."""
     morceaux = []
-    for annee in ANNEES:
+    for annee in annees():
         brut = spark.read.csv(url(f"bronze/dvf/{annee}.csv.gz"), header=True, inferSchema=False)
         morceaux.append(brut.withColumn("annee", F.lit(annee)))
     df = morceaux[0]

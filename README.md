@@ -9,6 +9,7 @@ Analyse du marché immobilier français (Epitech). Ce dépôt contient :
 | `db/` | Bases PostgreSQL/PostGIS + MongoDB (Docker), chargements et contrôles |
 | `jobs/` | Jobs Spark de l'app : prix au m² médian par commune, département, région |
 | `pipelines/` | Pipelines Spark déployés sur OVHcloud Data Platform (bronze → argent → or), cf. [`docs/deploiement_ovh.md`](docs/deploiement_ovh.md) |
+| `ovh/` | `dp.sh` : jeton, export/import de configuration et lancement de jobs Data Platform par API |
 | `app/` | Application Streamlit : carte des prix (région → département → commune) |
 | `docs/` | Fiches explicatives (PySpark, scraping, technos BDD) et schéma de la base |
 

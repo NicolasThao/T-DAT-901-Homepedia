@@ -19,7 +19,6 @@ import csv
 import io
 import shutil
 import sys
-from pathlib import Path
 
 from config import DB_DIR, _env, postgres
 from telecharger_dvf import ANNEES, DOSSIER as DOSSIER_DVF

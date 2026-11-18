@@ -18,36 +18,53 @@ import os
 from pyspark.sql import functions as F
 
 ETAPE = "controles"
-ANNEES = [int(a) for a in os.environ.get("HOMEPEDIA_ANNEES", "2022,2023,2024,2025").split(",")]
+ANNEES_DEFAUT = "2022,2023,2024,2025"  # HOMEPEDIA_ANNEES : à régler sur les 3 actions à la fois
 PRIX_M2_MIN, PRIX_M2_MAX = 200, 30_000
 
 
 # --- Accès au lac (bloc identique dans chaque étape : une action OVH ne peut pas importer un autre fichier) ---
+def parametre(nom, defaut=None):
+    """Variable de l'action : sur OVH, dictionnaire PARAMS du SDK (variables d'environnement de l'action ou du
+    workflow), sinon os.environ (local, conteneur)."""
+    try:
+        from forepaas.core.settings import PARAMS
+        if PARAMS.get(nom) not in (None, ""):
+            return str(PARAMS[nom])
+    except ImportError:
+        pass
+    return os.environ.get(nom, defaut)
+
+
 def contexte(nom):
     """(spark, url) ; url("bronze/dvf/2022.csv.gz") donne l'adresse du fichier dans le lac.
 
+    Paramètres lus par parametre() :
     - HOMEPEDIA_URL_LAC défini (ex. s3a://homepedia) : adresse directe, session Spark existante ;
     - SDK OVHcloud présent (forepaas) : source Buckets HOMEPEDIA_SOURCE (défaut « homepedia ») ;
     - sinon, local : dossier HOMEPEDIA_LAC (défaut data/lac à la racine du dépôt).
     """
     from pyspark.sql import SparkSession
-    base = os.environ.get("HOMEPEDIA_URL_LAC")
+    base = parametre("HOMEPEDIA_URL_LAC")
     if base:
         return SparkSession.builder.appName(nom).getOrCreate(), lambda chemin: f"{base.rstrip('/')}/{chemin}"
     try:
         from forepaas.dwh import connect
     except ImportError:
         from pathlib import Path
-        racine = Path(os.environ.get("HOMEPEDIA_LAC", Path(__file__).resolve().parents[2] / "data" / "lac"))
+        racine = Path(parametre("HOMEPEDIA_LAC", Path(__file__).resolve().parents[2] / "data" / "lac"))
         spark = SparkSession.builder.appName(nom).master("local[*]").getOrCreate()
         return spark, lambda chemin: str(racine / chemin)
-    cn = connect(f"dwh/{os.environ.get('HOMEPEDIA_SOURCE', 'homepedia')}/")
-    bucket = os.environ.get("HOMEPEDIA_BUCKET", "homepedia")
+    cn = connect(f"dwh/{parametre('HOMEPEDIA_SOURCE', 'homepedia')}/")
+    bucket = parametre("HOMEPEDIA_BUCKET", "homepedia")
 
     def url(chemin):
         dossier, _, fichier = chemin.rpartition("/")
         return cn.get_spark_url(dossier, fichier, bucket=bucket)
     return cn.get_spark_session(), url
+
+
+def annees():
+    return [int(a) for a in parametre("HOMEPEDIA_ANNEES", ANNEES_DEFAUT).split(",")]
 
 
 def journal(message):
@@ -62,7 +79,7 @@ def controles_argent(spark, url):
         F.sum("nb_lignes_source").alias("lignes"),
         F.sum(F.col("hors_marche").isNull().cast("int")).alias("sans_marque")).collect()}
     resultats = []
-    for annee in ANNEES:
+    for annee in annees():
         r = par_annee.get(annee)
         lignes_bronze = spark.read.csv(url(f"bronze/dvf/{annee}.csv.gz"), header=True).count()
         resultats += [
@@ -88,15 +105,15 @@ def controles_or(spark, url):
                               & (F.col("prix_m2_median") <= F.col("prix_m2_q3")) & (F.col("prix_m2_q3") <= F.col("prix_m2_d9")))).count()
     hors_bornes = ind.filter(~F.col("prix_m2_median").between(PRIX_M2_MIN, PRIX_M2_MAX)).count()
     paris6 = ind.filter((F.col("niveau_geo") == "commune") & (F.col("code_geo").cast("string") == "75106")
-                        & (F.col("type_local") == "Appartement") & (F.col("periode") == max(ANNEES))).first()
+                        & (F.col("type_local") == "Appartement") & (F.col("periode") == max(annees()))).first()
     return lots, [
         ("or : un seul lot", len(lots) == 1, ", ".join(map(str, lots))),
-        ("or : une série par année DVF", periodes == ANNEES, str(periodes)),
+        ("or : une série par année DVF", periodes == annees(), str(periodes)),
         ("or : même nombre de ventes aux échelles commune, département, région",
          bool(par_niveau) and all(r.totaux_distincts == 1 for r in par_niveau), f"{len(par_niveau)} années"),
         ("or : déciles et quartiles ordonnés (D1 ≤ Q1 ≤ médiane ≤ Q3 ≤ D9)", hors_ordre == 0, f"{hors_ordre} zones hors ordre"),
         (f"or : médianes entre {PRIX_M2_MIN} et {PRIX_M2_MAX} €/m²", hors_bornes == 0, f"{hors_bornes} hors bornes"),
-        (f"or : repère Paris 6e appartements {max(ANNEES)} entre 10 000 et 20 000 €/m²",
+        (f"or : repère Paris 6e appartements {max(annees())} entre 10 000 et 20 000 €/m²",
          paris6 is not None and 10_000 <= paris6.prix_m2_median <= 20_000,
          f"{paris6.prix_m2_median:.0f} €/m²" if paris6 else "absent"),
     ]
