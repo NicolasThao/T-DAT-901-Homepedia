@@ -64,6 +64,65 @@ OVH_SECRET_KEY=<secret R3>
 
 Endpoint, région `forepaas` et signature `s3v4` : `tutorials-bucket-s3-access.md`.
 
+### Commandes OVHcloud Shell
+
+OVHcloud Shell = terminal ouvert depuis l'icône en haut à droite du Control Panel, déjà authentifié, avec le
+CLI `ovhcloud` (`getting-started-ovhcloudshell.md`, section *cross-functional*).
+
+**Ce qui se scripte, ce qui reste en console** (doc lue le 2026-11-18) :
+
+| Ressource | Shell ? | Pourquoi |
+|---|---|---|
+| R1 projet Public Cloud (identifiant) | oui, lecture | `ovhcloud cloud project list` |
+| R2 bucket, dépôt du bronze, lecture des couches | **oui** | le datastore est compatible S3 : AWS CLI avec `--endpoint-url` (`tutorials-bucket-s3-access.md` cite `s3 mb`, `s3 cp`, `s3 ls`) |
+| R3 compte de service, clés API | non | IAM de Data Platform : pas de commande ni d'API de création documentée (l'API publique ne couvre que `/iam/login` et `/iam/logout`) |
+| R4 source, R5 dépôt Git, R6 actions, R7 workflow | non | « The complete Data Platform API is in development » ; actions modifiables seulement via Git + pull (`landing-page-developers-apis.md`, `dpe-actions-manage.md`) |
+| Lancer le workflow | non (pour l'instant) | la doc dit « API call » possible, mais ne publie pas l'endpoint (`dpe-workflows.md`) |
+
+Le CLI `ovhcloud` gère l'Object Storage *Public Cloud* (`ovhcloud cloud storage-s3`), qui n'est **pas** le
+datastore de Data Platform : on ne l'utilise pas ici.
+
+Session type, à coller dans le Shell après avoir créé les clés R3 dans la console (rien n'est écrit en dur) :
+
+```bash
+# 0. Outils : la doc ne garantit que le CLI ovhcloud ; installer l'AWS CLI s'il manque
+ovhcloud version
+command -v aws curl python3 || true
+command -v aws || { python3 -m pip install --user awscli && export PATH="$HOME/.local/bin:$PATH"; }
+
+# 1. Projet Public Cloud qui porte la Data Platform (R1)
+ovhcloud cloud project list
+
+# 2. Accès S3 au datastore du projet Data Platform (clés R3, lues au clavier, jamais dans l'historique)
+export DP_URL="https://<sous-domaine-du-projet>.eu.dataplatform.ovh.net"
+read -rp "Clé API R3 : " CLE; read -rsp "Secret R3 : " SECRET; echo
+aws configure set aws_access_key_id "$CLE" --profile homepedia
+aws configure set aws_secret_access_key "$SECRET" --profile homepedia
+aws configure set region forepaas --profile homepedia
+aws configure set s3.signature_version s3v4 --profile homepedia
+unset CLE SECRET
+dp() { aws --profile homepedia --endpoint-url "$DP_URL/datastore" "$@"; }
+dp s3 ls                                   # test des clés : liste les buckets (dont project-<id>)
+
+# 3. Bucket du lac (R2, si pas créé dans la console)
+dp s3 mb s3://homepedia
+
+# 4. Bronze DVF : téléchargé depuis data.gouv directement vers le bucket, sans passer par le poste ni le disque
+for a in 2022 2023 2024 2025; do
+  curl -fsSL "https://files.data.gouv.fr/geo-dvf/latest/csv/$a/full.csv.gz" | dp s3 cp - "s3://homepedia/bronze/dvf/$a.csv.gz"
+done
+
+# 5. État du lac par couche, et rapport de contrôles du dernier lot (après le workflow)
+dp s3 ls --recursive s3://homepedia/ | awk '{print $3, $4}'
+dp s3 cp "s3://homepedia/$(dp s3 ls --recursive s3://homepedia/or/controles/ | awk '/part-.*\.csv$/ {print $4}')" - | column -s, -t
+```
+
+Le référentiel des communes (`bronze/referentiel/communes.csv`) vient de la base locale : il reste envoyé par
+`db/ovh.py envoyer` (étape suivante). `envoyer` saute un fichier DVF de même taille et remplace un fichier de taille
+différente par celui du poste : si Etalab a publié une livraison plus récente que celle chargée en local, le bronze
+redevient celle du poste, cohérente avec la base, et `db/check.py` peut comparer les mêmes ventes. Pour passer à la
+nouvelle livraison : `db/telecharger_dvf.py` puis `db/load_dvf.py` en local, et `envoyer`.
+
 ## 3. Ordre d'exécution
 
 Premier lancement (puis à chaque nouvelle livraison DVF, avril et octobre) :
@@ -73,6 +132,9 @@ Premier lancement (puis à chaque nouvelle livraison DVF, avril et octobre) :
 .venv\Scripts\python db\ovh.py envoyer          # bronze → bucket (~415 Mo ; ne renvoie pas un fichier identique)
 .venv\Scripts\python db\ovh.py etat             # vérifier : 5 fichiers dans bronze
 ```
+
+Variante sans envoyer 415 Mo depuis le poste : étapes 2 à 4 des commandes OVHcloud Shell (section 2), puis
+`db\ovh.py envoyer` qui n'ajoute que le référentiel des communes.
 
 Puis, dans Data Platform : Workflows → `pipeline-prix` → **…** → **Run**. Suivre l'exécution dans la console
 (icône *Console*, Logs Explorer). Chaque étape écrit ses comptes dans les logs ; la 3e se termine par
