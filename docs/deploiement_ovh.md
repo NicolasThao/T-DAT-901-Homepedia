@@ -164,11 +164,17 @@ Puis, dans Data Platform : Workflows → `pipeline-prix` → **…** → **Run**
 .venv\Scripts\streamlit run app\main.py         # sous la carte : « Indicateurs calculés sur OVHcloud Data Platform, lot … »
 ```
 
-**Coût** : facturation au DPU-heure pendant l'exécution seulement (mode serverless, `manage-pricing.md`). Ordre de
-grandeur (estimation, pas un tarif officiel : ~0,08 €/DPU-heure déduit des exemples de la doc) : 10 DPU pendant
-~20 min ≈ 0,30 € par exécution complète, stockage du bucket ~1 Go en plus. Après le
-premier lancement, relever la consommation dans la facturation avant de programmer des exécutions. Ne pas laisser
-de notebook ouvert ni d'action en mode *always-up* : ils consomment le voucher même inactifs.
+**Coût** (grille officielle ovhcloud.com/fr/public-cloud/prices, relevée le 2026-11-18) : Data Processing Engine
+0,08 € HT/DPU/heure, mesuré à la seconde ; stockage 0,0000274 € HT/Go/heure (≈ 0,02 €/Go/mois) ; requêtes Analytics
+5,47 € HT/To ; Connectors, Control Center et IAM inclus ; pas de frais par projet ni de transfert. Une exécution
+complète ≈ 10 DPU × ~20 min ≈ 0,30 € ; le bucket (~1 Go) ≈ 0,02 €/mois.
+
+**À vérifier dès la création du projet** : la doc dit aussi « Even when it is idle, your Project uses a handful of DPUs
+by default », réglable dans le Control Center (`manage-projects.md`), sans dire si c'est facturé. Si 2 DPU l'étaient en
+continu : 2 × 0,08 × 730 h ≈ 117 €/mois, plus que le voucher. Donc, 1 à 2 h après la création : roue dentée → *Billing
+information* (estimation de la prochaine facture) et Control Center → *Infrastructure Monitoring* (instances
+déployées). Mettre aussi un quota de DPU bas sur l'organisation (`manage-organizations-settings.md#quotas`). Ne pas
+laisser de notebook ouvert ni d'action en mode *always-up* : ils consomment le voucher même inactifs.
 
 **Si une étape échoue au premier lancement** (points non documentés, à constater) :
 
