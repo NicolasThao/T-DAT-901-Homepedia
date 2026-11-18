@@ -1,0 +1,2 @@
+# Scripts shell exécutés sous Linux (OVHcloud Shell) et Git Bash : toujours LF
+*.sh text eol=lf
