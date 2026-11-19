@@ -9,7 +9,7 @@ Chiffres de ce déroulé : `faits.json` (extraits de la base par `faits.py`, jam
 | 1 | Lancer Docker Desktop | icône baleine stable |
 | 2 | `docker compose -p candidata stop` | Candidata arrêté (il publie aussi le port 5433) |
 | 3 | `docker compose -f db/docker-compose.yml --env-file db/.env up -d --wait` | `homepedia-postgres-1` et `homepedia-mongo-1` *Healthy* |
-| 4 | `.venv\Scripts\python db\check.py` | `PASS — 74/74 contrôles OK` |
+| 4 | `.venv\Scripts\python db\check.py` | `PASS — 75/75 contrôles OK` (≈ 10 min : la veille au soir) |
 | 5 | `.venv\Scripts\streamlit run app\main.py` | navigateur sur `http://localhost:8501` |
 | 6 | Cliquer une fois France → Île-de-France → Paris, puis « Évolution », puis revenir à France et « Prix au m² » | met les cartes en cache : la démo devant le jury est instantanée |
 | 7 | Vérifier la connexion internet | le fond de carte (Esri) vient d'internet ; sans réseau, les zones colorées s'affichent quand même sur fond gris |
@@ -23,7 +23,8 @@ Chiffres de ce déroulé : `faits.json` (extraits de la base par `faits.py`, jam
 | 1 | Clic sur l'Île-de-France → ses départements | « On descend d'une échelle. Paris : 9 722 €/m². » |
 | 2 | Clic sur Paris → les 20 arrondissements | « Jusqu'à la commune — ici l'arrondissement, parce que DVF code Paris par arrondissement. » |
 | 3 | Bouton « Appartement » | « Filtre par type de bien : appartements du 6e, 14 053 €/m². » |
-| — | Tableau à droite, tri sur le prix, « Exporter en CSV » | « Le tableau reprend exactement les chiffres de la carte, il se trie et s'exporte. » |
+| — | Tableau à droite, tri sur le prix, « Exporter en CSV » | « Le tableau reprend exactement les chiffres de la carte, il se trie et s'exporte. Il ajoute les indicateurs du pipeline : quartiles, écart D9/D1, prix médian d'un bien, surface médiane. » |
+| — | Ligne sous la carte « Indicateurs calculés par le pipeline… » | « Chaque chiffre dit d'où il vient : le pipeline, son lot et sa date. Le même pipeline tournera sur OVHcloud. » |
 | — | Zone grisée (dans un département rural) + légende sous la carte | « Moins de 30 ventes : on n'affiche pas de prix plutôt qu'un chiffre non significatif. Les limites de la donnée sont écrites sous la carte. » |
 | 4 | Bouton « Évolution » (De 2022 À 2025, par défaut) | « Quatre années de ventes chargées : la variation du prix médian, bleu = baisse, rouge = hausse. Sans couleur : moins de 30 ventes une des deux années. » |
 | — | Bouton « France » | retour, Alt+Tab vers le deck, slide 9 (évolution) |

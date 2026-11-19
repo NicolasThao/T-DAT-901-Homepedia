@@ -116,6 +116,19 @@ def faits_controles():
     return {"controles_bdd": total, "tests_app": passes, "ecarts_spark_sql": ecarts}
 
 
+def faits_pipeline():
+    """Dernier rapport or/controles du pipeline prix (pipelines/prix, lac local data/lac : même code que sur OVH)."""
+    import csv
+    parts = sorted((RACINE / "data" / "lac" / "or" / "controles").glob("part-*.csv"))
+    if not parts:
+        raise SystemExit("rapport du pipeline absent : lancer pipelines/prix (docs/deploiement_ovh.md, section 5)")
+    lignes = [r for p in parts for r in csv.DictReader(p.open(encoding="utf-8"))]
+    ok = sum(r["ok"].lower() == "true" for r in lignes)
+    if ok != len(lignes):
+        raise SystemExit(f"pipeline : {len(lignes) - ok} contrôle(s) en échec")
+    return {"controles_pipeline": len(lignes)}
+
+
 # Faits qui ne viennent pas d'une requête : inventaire du dépôt et calendrier du projet.
 FAITS_DECLARES = {
     "sources_en_place": 3,           # DVF 2022-2025, geo.api.gouv.fr, annonces Orpi
@@ -130,11 +143,14 @@ FAITS_DECLARES = {
     "bases": 2,                      # PostgreSQL + MongoDB
     "echelles": 3,                   # commune, département, région
     "clics_demo": 2,                 # France -> région -> département
+    "etapes_pipeline": 3,            # pipelines/prix : bronze->argent, argent->or, contrôles
+    "indicateurs_marche": 7,         # médiane, Q1, Q3, D1, D9, prix d'un bien, surface (pipelines/prix/argent_vers_or.py)
+    "ecarts_parite": 0,              # pipelines/prix/parite_argent.py, 2026-11-18 : 0 écart sur toutes les ventes
 }
 
 
 def main():
-    faits = {**faits_postgres(), **faits_mongo(), **faits_controles(), **FAITS_DECLARES}
+    faits = {**faits_postgres(), **faits_mongo(), **faits_controles(), **faits_pipeline(), **FAITS_DECLARES}
     # Contrôles de cohérence : un fait faux doit casser ici, pas devant le jury
     assert faits["annonces"] == faits["annonces_mongo"], "Postgres et Mongo n'ont pas les mêmes annonces"
     assert faits["ecarts_spark_sql"] == 0, "médianes Spark différentes du recalcul SQL"

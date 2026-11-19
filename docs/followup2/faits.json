@@ -32,9 +32,10 @@
   "ventes_spark": 3404073,
   "annonces_mongo": 500,
   "annonces_texte_balcon": 80,
-  "controles_bdd": 74,
-  "tests_app": 33,
+  "controles_bdd": 75,
+  "tests_app": 34,
   "ecarts_spark_sql": 0,
+  "controles_pipeline": 22,
   "sources_en_place": 3,
   "sources_visees": 12,
   "sources_palier1": 4,
@@ -46,5 +47,8 @@
   "etapes_sujet": 4,
   "bases": 2,
   "echelles": 3,
-  "clics_demo": 2
+  "clics_demo": 2,
+  "etapes_pipeline": 3,
+  "indicateurs_marche": 7,
+  "ecarts_parite": 0
 }

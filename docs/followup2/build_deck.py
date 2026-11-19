@@ -193,7 +193,7 @@ def s02_etapes(prs):
     colonnes = [
         ("COLLECTE", f"{F['sources_en_place']} sources chargées"),
         ("BASES DE DONNÉES", "PostgreSQL + MongoDB"),
-        ("BIG DATA", "Médianes par Spark"),
+        ("BIG DATA", "Pipeline Spark"),
         ("VISUALISATION", f"Carte sur {F['echelles']} échelles"),
     ]
     gap = Inches(0.4)
@@ -208,9 +208,10 @@ Le sujet impose 4 étapes : collecte, organisation en bases, analyse big data, v
 Chacune a déjà une brique qui fonctionne de bout en bout, de la donnée brute jusqu'à l'écran.
 - Collecte : DVF {PERIODE} (ventes réelles, DGFiP, publiées par Etalab), référentiel géographique geo.api.gouv.fr, {F['annonces']} annonces Orpi.
 - Bases : PostgreSQL/PostGIS pour le tabulaire et le spatial, MongoDB pour le texte des annonces.
-- Big data : un job Spark calcule les prix médians, recontrôlé en SQL.
+- Big data : un pipeline Spark en {F['etapes_pipeline']} étapes (bronze → argent → or, puis contrôles) calcule {F['indicateurs_marche']} indicateurs
+  de prix, recontrôlés en SQL ; il est prêt pour OVHcloud Data Platform (slide 10).
 - Visualisation : application Streamlit, carte région → département → commune.
-La suite : d'abord Spark et des pipelines déployés automatiquement sur OVHcloud Data Platform, puis l'analyse de texte,
+La suite : d'abord le déploiement de ce pipeline sur OVHcloud Data Platform, puis l'analyse de texte,
 puis les nouvelles sources, qui s'ajoutent alors comme de simples jobs.
 """)
 
@@ -426,14 +427,16 @@ def s08_demo(prs):
 1. France par région, toutes ventes de {F['annee_fin']} (année affichée par défaut) : l'Île-de-France ressort à {n(F['prix_france_idf'])} €/m².
 2. Clic sur l'Île-de-France → ses départements. Paris : {n(F['prix_paris'])} €/m².
 3. Clic sur Paris → les arrondissements. Appartements du 6e : {n(F['prix_paris_6e_appart'])} €/m² (filtre Appartement).
-4. Le tableau à droite reprend exactement les chiffres de la carte, se trie et s'exporte en CSV.
+4. Le tableau à droite reprend exactement les chiffres de la carte, se trie et s'exporte en CSV. Il ajoute les
+   indicateurs du pipeline : quartiles, écart D9/D1 (dispersion), prix médian d'un bien, surface médiane.
+   Sous la carte : d'où viennent les chiffres (pipeline, lot, date de calcul).
 5. Zones grisées : moins de {F['seuil_ventes']} ventes — on préfère ne rien afficher qu'un prix non significatif.
 6. Bouton « Évolution » : on enchaîne sur la slide suivante.
 Si la démo ne répond pas : captures du parcours dans docs/followup2/captures/.
 À dire à l'oral pendant la démo (pas de slide dédiée) :
 - Les prix affichés sont calculés par Spark : {n(F['ventes_retenues'])} ventes de marché d'un seul logement → {n(F['indicateurs_lignes'])} indicateurs
   (médianes par commune, département, région, type de bien et année). Pourquoi la médiane : une vente aberrante ne la déplace pas.
-- Chaque médiane Spark est recalculée en SQL : {F['ecarts_spark_sql']} écart sur toutes les zones.
+- Chaque indicateur Spark (médiane, quartiles, déciles, valeur et surface) est recalculé en SQL : {F['ecarts_spark_sql']} écart sur toutes les zones.
 - Une commande rejoue {F['controles_bdd']} contrôles sur les bases (aucune ligne perdue, repères connus, cohérence PostgreSQL ↔ MongoDB)
   et {F['tests_app']} tests vérifient l'application ; les chiffres de ce deck sont extraits de la base par un script.
 """)
@@ -479,11 +482,11 @@ Plan B : captures/4_evolution_france_app.png et 5_evolution_paris_app.png.
 def s10_cloud(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     fond(s, BLANC)
-    entete(s, 10, "Plateforme cloud", "Spark passe sur OVHcloud Data Platform")
+    entete(s, 10, "Plateforme cloud", "Pipeline prix prêt pour OVHcloud")
     colonnes = [
-        ("AUJOURD'HUI", "Spark local", "1 machine", ENCRE),
-        ("OVHCLOUD DATA PLATFORM", "Spark distribué", "1 driver + N exécuteurs", BLEU),
-        ("RÉSULTAT", "Mêmes indicateurs", "même application", ENCRE),
+        ("FAIT", f"{F['etapes_pipeline']} étapes Spark", "bronze → argent → or", ENCRE),
+        ("VÉRIFIÉ", f"{F['controles_pipeline']} contrôles PASS", "en local, même code", BLEU),
+        ("PROCHAINE ÉTAPE", "Déploiement", "workflow planifié", ENCRE),
     ]
     gap = Inches(0.9)
     w = (LARGEUR - 2 * gap) / 3
@@ -498,27 +501,27 @@ def s10_cloud(prs):
                   align=PP_ALIGN.CENTER)
     trait(s, MARGE, Inches(5.4), L - MARGE, Inches(5.4))
     texte(s, MARGE, Inches(5.6), LARGEUR, Inches(0.5),
-          [[("Priorité : ", {"police": TITRE, "couleur": BLEU}), ("pipelines déployés automatiquement", {})]],
+          [[("Ensuite : ", {"police": TITRE, "couleur": BLEU}), ("une source = une étape", {})]],
           taille=22, police=LEGER, couleur=ENCRE)
     notes(s, """
-Le sujet impose de répartir le calcul sur un cluster de machines (Hadoop / Spark) : on le fera sur OVHcloud Data Platform.
-Ce que la plateforme fournit (doc officielle OVHcloud) :
-- le Data Processing Engine exécute un script PySpark comme une « action » : 1 driver qui coordonne,
-  et un nombre d'exécuteurs réglable qui portent la partie distribuée du calcul ;
-- la puissance se règle par job en DPU (1 DPU ≈ 1 vCPU + 4 Go de RAM) ;
-- les données sont déposées via les Connectors et stockées en tables Iceberg (Lakehouse Manager) ;
-- le résultat peut être écrit dans une table PostgreSQL connectée.
-Notre job tourne déjà en PySpark : on le porte tel quel, la table d'indicateurs et l'application ne changent pas.
-Coût maîtrisé : facturation à l'usage ; en mode serverless, un job ne consomme que pendant son exécution
-(un notebook allumé ou le mode always-up consomment en continu, on les évite).
-Contrôle prévu : la même vérification qu'aujourd'hui, médiane Spark = recalcul SQL sur toutes les zones.
-C'est la priorité du prochain palier : prendre en main la plateforme et automatiser le déploiement des pipelines
-(ingestion, nettoyage, calcul Spark, contrôles). Ensuite, intégrer une nouvelle source ou un nouveau calcul revient
-à ajouter un job, déployé et contrôlé de la même façon — c'est ce qui rend les paliers suivants rapides.
+Le sujet impose de répartir le calcul sur un cluster de machines (Hadoop / Spark) : on le fait sur OVHcloud Data Platform.
+Où on en est : le pipeline du domaine prix est écrit et vérifié ; il reste à le déployer sur la plateforme (palier 1).
+- {F['etapes_pipeline']} étapes Spark, un fichier chacune : bronze → argent (les {n(F['dvf_lignes_csv'])} lignes DVF deviennent {n(F['dvf_mutations'])} ventes),
+  argent → or ({n(F['indicateurs_lignes'])} indicateurs), puis {F['controles_pipeline']} contrôles PASS/FAIL ; un contrôle en échec arrête tout.
+- Même code en local et sur la plateforme (forme d'une « action PySpark » : 1 driver + N exécuteurs réglables en DPU,
+  1 DPU = 1 vCPU + 4 Go). Testé sur deux versions de Spark (3.4, celle des exemples de la doc, et 4.0) : mêmes résultats.
+- Vérifié contre l'existant : la couche argent Spark est identique, vente par vente, à la base actuelle ({F['ecarts_parite']} écart),
+  et chaque indicateur est recalculé en SQL ({F['ecarts_spark_sql']} écart).
+- Données : un bucket avec un dossier par couche ; l'or est rapatrié dans la base de l'app seulement si tous les
+  contrôles sont PASS. L'app ne dépend donc pas du cloud pour fonctionner.
+- Coût : facturé au DPU-heure (quelques centimes), en mode serverless seulement pendant l'exécution, soit quelques dizaines de centimes
+  par exécution complète (estimation) ; un notebook allumé ou le mode always-up consomment en continu, on les évite.
+Prochaine étape : créer les ressources sur la plateforme, lancer le workflow, le planifier. Ensuite, intégrer une
+nouvelle source ou un nouveau calcul revient à ajouter une étape, déployée et contrôlée de la même façon.
 Ce qu'on appelle un pipeline : une chaîne de traitements automatisée, de la source jusqu'à la table lue par l'app
 (ingestion → nettoyage → calcul Spark → contrôles PASS/FAIL), déclenchée sans intervention (planning ou nouvelle
 livraison), rejouable, et qui s'arrête en alerte si un contrôle échoue. Aujourd'hui nos chaînes existent et sont
-contrôlées, mais se lancent à la main : les automatiser est l'objet de ce palier.
+contrôlées, mais se lancent encore à la main : les automatiser sur la plateforme est l'objet de ce palier.
 Organisation de l'équipe : un seul projet Data Platform, partagé à 4 (chacun invité comme membre de l'équipe),
 qui porte les données, les pipelines et l'app ; il est facturé au compte qui l'héberge. Chacun peut garder son propre
 projet comme bac à sable (tester un notebook, un job, un modèle) ; le code passe par un dépôt Git commun.
@@ -577,8 +580,9 @@ On organise les données en domaines, et chaque domaine traverse les mêmes troi
 - Un pipeline fait passer un domaine d'une couche à la suivante, automatiquement, et s'arrête si un contrôle échoue.
 Aujourd'hui, en local, ces couches existent déjà sans en porter le nom : fichiers téléchargés (bronze),
 tables nettoyées PostgreSQL comme les ventes DVF et les annonces (argent), table d'indicateurs calculée par Spark (or).
-Sur OVHcloud Data Platform, le stockage de chaque couche sera fixé au palier 1 : stockage objet et tables Iceberg,
-ou base PostgreSQL hébergée. Les conventions reprennent celles documentées par notre collègue.
+Sur OVHcloud Data Platform : un bucket (stockage objet) avec un dossier par couche, bronze/, argent/ (Parquet), or/ ;
+l'or est rapatrié dans la base de l'app après contrôles. Les conventions reprennent celles documentées par notre collègue
+(colonnes de traçabilité _source, _date_ingestion, _batch_id ; lignes douteuses marquées, jamais supprimées).
 Intérêt : une nouvelle source n'entre que par sa couche bronze ; le reste de la chaîne et l'app ne changent pas.
 """)
 
@@ -642,15 +646,16 @@ def s11_domaine_prix(prs):
         [("OBJECTIF", "Niveau, dynamisme, dispersion et coût d'implantation de chaque marché"),
          ("ENTRÉE", f"DVF Etalab {PERIODE} (logements, locaux, terrains), référentiel géo"),
          ("TRAITEMENT", "Regroupement par vente, filtres, agrégats Spark par zone, type et année")],
-        [("Prix au m², évolution", True), ("Volume de ventes", False), ("Quartiles, écart D9/D1", False),
-         ("Prix d'un bien, surface", False), ("Prix du T1 au T5+", False), ("Part neuf / maisons", False),
+        [("Prix au m², évolution", True), ("Volume de ventes", True), ("Quartiles, écart D9/D1", True),
+         ("Prix d'un bien, surface", True), ("Prix du T1 au T5+", False), ("Part neuf / maisons", False),
          ("Locaux commerciaux au m²", False), ("Terrains à bâtir", False), ("Densité des ventes (GPS)", False)],
         "Sélecteur d'indicateur, carte de chaleur, tableau croisé exportable",
         f"""
-Premier domaine porté sur la plateforme. Aujourd'hui, sa chaîne existe en local mais se lance à la main, script par script
-(téléchargement, chargement, job Spark, contrôles) : elle devient un vrai pipeline, automatisé, au palier 1.
-Elle ne produit qu'un indicateur, le prix médian au m².
-On l'élargit à une dizaine d'indicateurs, tous tirés des données DVF déjà en base : aucune nouvelle source à intégrer.
+Premier domaine porté sur la plateforme. Son pipeline (bronze → argent → or → contrôles) est écrit et vérifié en local ;
+il se lance encore à la main et sera déployé et planifié sur OVHcloud au palier 1.
+Il produit déjà {F['indicateurs_marche']} indicateurs (carrés pleins) : médiane, quartiles, déciles 1 et 9, prix médian d'un bien,
+surface médiane, avec le nombre de ventes ; ils apparaissent dans le tableau de l'app. Les autres (carrés vides) suivent,
+tous tirés des données DVF déjà en base : aucune nouvelle source à intégrer.
 - Entrée : DVF géolocalisées d'Etalab ({PERIODE}, {n(F['dvf_lignes_csv'])} lignes → {n(F['dvf_mutations'])} ventes), qui ne contiennent
   pas que des logements : en {F['annee_fin']}, {n(F['dvf_locaux_fin'])} ventes de locaux commerciaux ou industriels et
   {n(F['dvf_terrains_fin'])} ventes de terrains sans bâti. Plus le référentiel geo.api.gouv.fr (communes, contours).
@@ -658,10 +663,10 @@ On l'élargit à une dizaine d'indicateurs, tous tirés des données DVF déjà 
   par commune, département et région, par type de bien et par année. Chaque indicateur a son contrôle SQL, comme la médiane aujourd'hui.
 Indicateurs, et ce qu'ils apportent :
 - Prix médian au m² et évolution (en place) : le niveau des prix.
-- Volume de ventes et son évolution : le dynamisme du marché, utile pour les franchises.
+- Volume de ventes et son évolution (en place) : le dynamisme du marché, utile pour les franchises.
 - Quartiles et écart entre les 10 % les plus chers et les 10 % les moins chers (D9/D1) : la dispersion des prix
-  à l'intérieur d'une zone, première mesure d'inégalité.
-- Prix médian d'un bien et surface médiane : le budget réel d'un acheteur, pas seulement le prix au m².
+  à l'intérieur d'une zone, première mesure d'inégalité (en place).
+- Prix médian d'un bien et surface médiane (en place) : le budget réel d'un acheteur, pas seulement le prix au m².
 - Prix par taille, du T1 au T5 et plus : le marché des petites surfaces et celui des familles.
 - Part du neuf (VEFA) et part des maisons : construction et type de tissu urbain.
 - Locaux commerciaux au m² : le coût d'implantation, directement utile pour les franchises
@@ -753,13 +758,13 @@ def s14_feuille_de_route(prs):
         texte(s, x, y + Inches(0.9), w - Inches(0.3), Inches(1.0), titre, taille=28, police=TITRE)
         texte(s, x, y + Inches(1.6), w - Inches(0.3), Inches(1.0), detail, taille=19, police=LEGER, couleur=GRIS)
     notes(s, f"""
-Nous sommes au début du premier palier. Chaque palier ajoute une brique sur le socle existant, sans rien
+Nous sommes au début du premier palier, déjà entamé : le pipeline du domaine prix est écrit et vérifié en local. Chaque palier ajoute une brique sur le socle existant, sans rien
 reconstruire : même clé (code INSEE), mêmes bases, même mécanisme de contrôles PASS/FAIL.
 1. 23/11 – 13/12 : priorité à la plateforme. Spark sur OVHcloud Data Platform (slide 10) et déploiement
    automatisé des pipelines de données : ingestion, nettoyage, calcul, contrôles. C'est l'investissement qui rend
    les paliers suivants rapides — une nouvelle donnée ou un nouveau calcul devient un job de plus.
-   Organisation en domaines et couches bronze / argent / or (slide 5) ; le domaine prix (slide 11),
-   dont la chaîne existe déjà en local, est le premier automatisé.
+   Organisation en domaines et couches bronze / argent / or (slide 5) ; le domaine prix (slide 11), dont le pipeline
+   est prêt (slide 10), est le premier déployé : création des ressources, workflow planifié, puis les autres domaines.
 2. 14/12 – 10/01 : analyse de texte (domaine texte, slide 12). Caractéristiques extraites des annonces (« travaux », « rénovation »…) et
    sentiment calculé sur une source d'avis, agrégés par commune ; méthode et modèle documentés comme l'exige le sujet.
 3. 11/01 – 31/01 : {F['sources_palier1']} sources socio-économiques et risques (revenus INSEE Filosofi, population, DPE ADEME,
