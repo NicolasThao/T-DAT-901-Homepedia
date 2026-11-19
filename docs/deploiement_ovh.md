@@ -127,7 +127,7 @@ Pilotage de Data Platform par API (`ovh/dp.sh`, testé contre un faux serveur : 
 aux exemples de la doc ; à confirmer sur le vrai projet) :
 
 ```bash
-git clone https://github.com/NicolasThao/T-DAT-901-Homepedia.git && cd T-DAT-901-Homepedia   # dépôt privé : jeton GitHub
+git clone https://github.com/NicolasThao/T-DAT-901-Homepedia.git && cd T-DAT-901-Homepedia
 export DP_URL="https://<sous-domaine-du-projet>.eu.dataplatform.ovh.net"
 source ovh/dp.sh                         # demande clé et secret R3, garde le jeton en mémoire
 dp_exporter ovh/dpe-config.tar           # sauvegarde actions + workflow après leur création (R6, R7)
